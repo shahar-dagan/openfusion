@@ -31,7 +31,9 @@ jobs:
     env:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       CONFIG: ${{ github.event.inputs.config || 'openfusion.dev.yaml.example' }}
-      TASKS: ${{ github.event.inputs.tasks || 'bench/tasks/smoke.jsonl' }}
+      # Push path picks the task set by branch suffix: run-bench/sample -> sample,
+      # anything else -> smoke. workflow_dispatch input still overrides both.
+      TASKS: ${{ github.event.inputs.tasks || (endsWith(github.ref_name, '/sample') && 'bench/tasks/sample.jsonl' || 'bench/tasks/smoke.jsonl') }}
       MAX_TOKENS: ${{ github.event.inputs.max_tokens || '32' }}
     steps:
       - uses: actions/checkout@v4
