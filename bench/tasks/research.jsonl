@@ -1,0 +1,8 @@
+{"id": "r1", "prompt": "Compare optimistic and pessimistic concurrency control. Explain the trade-offs and when each is preferable, especially under a high-contention database workload."}
+{"id": "r2", "prompt": "What are the main arguments for and against microservices versus a modular monolith for a 10-person startup? Weigh the trade-offs and give a balanced recommendation."}
+{"id": "r3", "prompt": "Explain the trade-offs between LoRA, full fine-tuning, and prompt engineering for adapting an LLM to a specialized domain, including cost, data, and quality considerations."}
+{"id": "r4", "prompt": "Compare event sourcing with CRUD-based persistence: benefits, drawbacks, operational complexity, and the conditions under which event sourcing actually pays off."}
+{"id": "r5", "prompt": "What are the key trade-offs between gradient-boosted trees (e.g. XGBoost) and deep neural networks for tabular prediction problems, and when would you choose each?"}
+{"id": "r6", "prompt": "Explain the CAP theorem and how it informs the design of a globally distributed key-value store. Go beyond 'pick two' and discuss the practical PACELC implications for latency and consistency."}
+{"id": "r7", "prompt": "Compare REST and gRPC for internal microservice communication across performance, streaming, tooling, browser support, and developer experience. When is each the better choice?"}
+{"id": "r8", "prompt": "What are the main strategies for reducing LLM inference cost in production (quantization, distillation, caching, batching, speculative decoding), and what quality and latency trade-offs does each entail?"}

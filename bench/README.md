@@ -54,6 +54,28 @@ GSM8K answers are graded with the `numeric` match mode (the final number in the 
 compared to the gold answer). The test split is fetched once from the public
 `openai/grade-school-math` repo and cached under `bench/.cache/` (gitignored).
 
+## Open-ended (research) eval
+
+Deep-research tasks are open-ended, so exact-match scoring does not apply.
+`bench/research_eval.py` instead gets a solo answer and a fusion answer for each
+question, then asks a judge model which is better in a **blind, position-randomized
+A/B comparison** (the judge is told not to reward verbosity). It reports fusion
+wins / solo wins / ties and the cost per mode — a cheap proof of whether the
+fusion synthesis step lifts open-ended quality, before investing in tool-enabled
+fusion and a full rubric-graded harness.
+
+```bash
+python bench/research_eval.py \
+  --config openfusion.bench.yaml.example \
+  --tasks bench/tasks/research.jsonl \
+  --max-tokens 512 \
+  --output bench/results/latest.json
+```
+
+Caveat: same-family judge (gpt-4o-mini grading gpt-4o-mini) has some self/length
+bias; position randomization and the no-verbosity instruction mitigate but do not
+eliminate it. This is a directional proof, not a rubric-grade benchmark.
+
 ## Task format
 
 Each line in a `--tasks` JSONL file:
@@ -92,6 +114,8 @@ or when a `run-bench/**` branch is pushed. The branch suffix selects a preset:
 | `run-bench/smoke` | `smoke.jsonl` | dev | 32 |
 | `run-bench/sample` | `sample.jsonl` | dev | 32 |
 | `run-bench/gsm8k` | GSM8K (`--limit 40`) | bench | 512 |
+| `run-bench/gsm8k-vote` | GSM8K, vote aggregator | bench-vote | 512 |
+| `run-bench/research` | `research.jsonl` (pairwise judge) | bench | 512 |
 
 `workflow_dispatch` inputs override any preset. Results are published as a job summary table
 (accuracy, latency, tokens, cost, **$/correct**) and a `bench-results` artifact.
