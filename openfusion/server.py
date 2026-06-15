@@ -15,7 +15,7 @@ from fastapi import Depends, FastAPI, Header, Request
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from openfusion.config import OpenFusionConfig, PanelMember, load_config
+from openfusion.config import Aggregator, OpenFusionConfig, PanelMember, load_config
 from openfusion.cost import CostPolicy, RequestPhase
 from openfusion.errors import (
     AuthenticationError,
@@ -24,7 +24,12 @@ from openfusion.errors import (
     UpstreamError,
 )
 from openfusion.metrics import METRICS
-from openfusion.stream import buffer_synthesis, synthesize_and_stream
+from openfusion.stream import (
+    buffer_synthesis,
+    buffer_vote,
+    synthesize_and_stream,
+    vote_and_stream,
+)
 from openfusion.upstream import UpstreamClient
 
 FUSION_MODEL = "openfusion"
@@ -177,13 +182,18 @@ def create_app(config: OpenFusionConfig | None = None) -> FastAPI:
                     _record_request(route, "success", started)
                 return response
 
-            if cfg.judge is None:
-                raise InvalidRequestError("Judge must be configured for fusion requests")
-            policy.apply_token_limit(body, RequestPhase.JUDGE, reject_over_limit=True)
+            if cfg.aggregator == Aggregator.JUDGE:
+                if cfg.judge is None:
+                    raise InvalidRequestError("Judge must be configured for judge aggregation")
+                policy.apply_token_limit(body, RequestPhase.JUDGE, reject_over_limit=True)
 
             if stream:
                 return await _fusion_stream(request, body, cfg, client, started=started)
-            payload = await buffer_synthesis(body, cfg, client)
+            payload = (
+                await buffer_vote(body, cfg, client)
+                if cfg.aggregator == Aggregator.VOTE
+                else await buffer_synthesis(body, cfg, client)
+            )
             _record_request(route, "success", started)
             return JSONResponse(content=payload)
         except OpenFusionError as exc:
@@ -259,11 +269,13 @@ async def _fusion_stream(
 ) -> StreamingResponse:
     cancel_event = asyncio.Event()
 
+    streamer = vote_and_stream if config.aggregator == Aggregator.VOTE else synthesize_and_stream
+
     async def event_stream() -> AsyncIterator[str]:
         task = asyncio.create_task(_watch_disconnect(request, cancel_event))
         outcome = "success"
         try:
-            async for line in synthesize_and_stream(
+            async for line in streamer(
                 body,
                 config,
                 client,

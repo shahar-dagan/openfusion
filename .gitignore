@@ -17,6 +17,7 @@ env/
 .ruff_cache/
 .mypy_cache/
 bench/results/
+bench/.cache/
 
 # Env / secrets
 .env

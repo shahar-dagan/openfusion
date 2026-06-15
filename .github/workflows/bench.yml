@@ -2,9 +2,14 @@ name: Benchmark
 
 # Runs the self-fusion vs solo head-to-head against a live OpenRouter key.
 # This spends real provider credits, so it never runs on normal pushes/PRs.
-# Two ways to start it, both defaulting to the cheap smoke set + low ceiling:
+# Two ways to start it, both presetting by branch suffix:
 #   1. Actions tab -> Benchmark -> Run workflow (manual dispatch, overridable).
-#   2. Push a branch under run-bench/** (e.g. run-bench/smoke) to fire it.
+#   2. Push a branch under run-bench/** to fire it. Branch suffix presets:
+#        run-bench/smoke       -> smoke.jsonl,  dev config,        max_tokens 32 (default)
+#        run-bench/sample      -> sample.jsonl, dev config,        max_tokens 32
+#        run-bench/gsm8k       -> GSM8K loader, bench config,      max_tokens 512 (judge)
+#        run-bench/gsm8k-vote  -> GSM8K loader, bench-vote config, max_tokens 512 (vote)
+#        run-bench/research    -> research.jsonl open-ended, bench config, pairwise LLM-judge
 
 on:
   workflow_dispatch:
@@ -14,8 +19,16 @@ on:
         default: "openfusion.dev.yaml.example"
         type: string
       tasks:
-        description: "JSONL task file"
+        description: "JSONL task file (ignored if dataset is set)"
         default: "bench/tasks/smoke.jsonl"
+        type: string
+      dataset:
+        description: "Public dataset loader (e.g. gsm8k); blank uses tasks"
+        default: ""
+        type: string
+      limit:
+        description: "Max tasks when using a dataset"
+        default: "40"
         type: string
       max_tokens:
         description: "Per-call output cap (both solo and fusion)"
@@ -30,11 +43,14 @@ jobs:
     runs-on: ubuntu-latest
     env:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-      CONFIG: ${{ github.event.inputs.config || 'openfusion.dev.yaml.example' }}
-      # Push path picks the task set by branch suffix: run-bench/sample -> sample,
-      # anything else -> smoke. workflow_dispatch input still overrides both.
+      # Branch suffix selects the preset; workflow_dispatch inputs override.
+      # 'vote' in the branch name -> vote config; 'gsm8k' -> GSM8K + bench config + 512 tokens.
+      CONFIG: ${{ github.event.inputs.config || (contains(github.ref_name, 'vote') && 'openfusion.bench-vote.yaml.example' || ((contains(github.ref_name, 'gsm8k') || contains(github.ref_name, 'research')) && 'openfusion.bench.yaml.example' || 'openfusion.dev.yaml.example')) }}
+      DATASET: ${{ github.event.inputs.dataset || (contains(github.ref_name, 'gsm8k') && 'gsm8k' || '') }}
+      LIMIT: ${{ github.event.inputs.limit || '40' }}
       TASKS: ${{ github.event.inputs.tasks || (endsWith(github.ref_name, '/sample') && 'bench/tasks/sample.jsonl' || 'bench/tasks/smoke.jsonl') }}
-      MAX_TOKENS: ${{ github.event.inputs.max_tokens || '32' }}
+      MAX_TOKENS: ${{ github.event.inputs.max_tokens || ((contains(github.ref_name, 'gsm8k') || contains(github.ref_name, 'research')) && '512' || '32') }}
+      EVAL: ${{ contains(github.ref_name, 'research') && 'research' || 'accuracy' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -72,11 +88,23 @@ jobs:
       - name: Run benchmark
         run: |
           mkdir -p bench/results
-          python bench/run.py \
-            --config "$CONFIG" \
-            --tasks "$TASKS" \
-            --max-tokens "$MAX_TOKENS" \
-            --output bench/results/latest.json
+          if [ "$EVAL" = "research" ]; then
+            echo "Running: research_eval (pairwise) with $CONFIG"
+            python bench/research_eval.py \
+              --config "$CONFIG" \
+              --tasks bench/tasks/research.jsonl \
+              --max-tokens "$MAX_TOKENS" \
+              --output bench/results/latest.json
+          else
+            ARGS="--config $CONFIG --max-tokens $MAX_TOKENS --output bench/results/latest.json"
+            if [ -n "$DATASET" ]; then
+              ARGS="$ARGS --dataset $DATASET --limit $LIMIT"
+            else
+              ARGS="$ARGS --tasks $TASKS"
+            fi
+            echo "Running: python bench/run.py $ARGS"
+            python bench/run.py $ARGS
+          fi
 
       - name: Write job summary
         if: always()
@@ -92,22 +120,39 @@ jobs:
 
           report = json.loads(path.read_text())
 
-          def row(label, s):
-              acc = f"{s['accuracy'] * 100:.1f}% ({s['correct']}/{s['total']})"
-              return (
-                  f"| {label} | {acc} | {s['avg_latency_seconds']:.2f}s "
-                  f"| {s['total_tokens']} | ${s['total_cost_usd']:.4f} |"
-              )
-
           print("## openfusion benchmark\n")
           print(f"- Config: `{report['config']}`")
           print(f"- Tasks: `{report['tasks_file']}`")
           print(f"- Solo model: `{report['solo_model']}`  Fusion: `{report['fusion_model']}`")
           print(f"- max_tokens: {report['max_tokens']}\n")
-          print("| Mode | Accuracy | Avg latency | Tokens | Cost |")
-          print("|------|----------|-------------|--------|------|")
-          print(row("Solo", report["solo"]))
-          print(row("Fusion", report["fusion"]))
+
+          if report.get("eval") == "research_pairwise":
+              s = report["summary"]
+              rate = s["fusion_win_rate_decided"]
+              rate_str = f"{rate * 100:.0f}%" if rate is not None else "n/a"
+              print(f"- Judge model: `{report['judge_model']}` (blind pairwise)\n")
+              print("| Metric | Value |")
+              print("|--------|-------|")
+              print(f"| Fusion wins | {s['fusion_wins']} |")
+              print(f"| Solo wins | {s['solo_wins']} |")
+              print(f"| Ties | {s['ties']} |")
+              print(f"| Fusion win rate (decided) | {rate_str} |")
+              print(f"| Solo cost | ${s['solo']['total_cost_usd']:.4f} |")
+              print(f"| Fusion cost | ${s['fusion']['total_cost_usd']:.4f} |")
+          else:
+              def row(label, s):
+                  acc = f"{s['accuracy'] * 100:.1f}% ({s['correct']}/{s['total']})"
+                  cpc = s.get("cost_per_correct_usd")
+                  cpc_str = f"${cpc:.5f}" if cpc is not None else "n/a"
+                  return (
+                      f"| {label} | {acc} | {s['avg_latency_seconds']:.2f}s "
+                      f"| {s['total_tokens']} | ${s['total_cost_usd']:.4f} | {cpc_str} |"
+                  )
+
+              print("| Mode | Accuracy | Avg latency | Tokens | Cost | $/correct |")
+              print("|------|----------|-------------|--------|------|-----------|")
+              print(row("Solo", report["solo"]))
+              print(row("Fusion", report["fusion"]))
           PY
 
       - name: Stop server

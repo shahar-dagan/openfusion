@@ -1,0 +1,36 @@
+# Benchmark recipe using majority-vote (self-consistency) aggregation instead
+# of the synthesizing judge. Same panel/model/ceilings as the judge bench
+# config so the two are directly comparable on the harder eval.
+
+strategy: self_fusion
+aggregator: vote
+
+self_fusion:
+  n: 3
+  temperature_spread: [0.2, 0.6, 1.0]
+  seed_offset: true
+
+cost_controls:
+  pass_through_max_tokens: 512
+  panel_max_tokens: 512
+  judge_max_tokens: 512
+
+panel:
+  - base_url: https://openrouter.ai/api/v1
+    api_key: ${OPENROUTER_API_KEY}
+    model: openai/gpt-4o-mini
+    label: bench-panel
+
+# vote needs no judge; pass_through is still used for non-fusion models.
+pass_through:
+  base_url: https://openrouter.ai/api/v1
+  api_key: ${OPENROUTER_API_KEY}
+  model: openai/gpt-4o-mini
+
+timeouts:
+  member_seconds: 90
+  judge_seconds: 120
+  total_seconds: 240
+
+gateway:
+  api_keys: []

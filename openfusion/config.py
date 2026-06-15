@@ -19,6 +19,13 @@ class Strategy(StrEnum):
     SELF_FUSION = "self_fusion"
 
 
+class Aggregator(StrEnum):
+    """How panel responses are combined into the final answer."""
+
+    JUDGE = "judge"  # a judge model synthesizes one answer
+    VOTE = "vote"  # majority vote over panel answers (self-consistency)
+
+
 class PanelMember(BaseModel):
     base_url: str
     api_key: str
@@ -82,6 +89,7 @@ class PassThroughConfig(BaseModel):
 
 class OpenFusionConfig(BaseModel):
     strategy: Strategy = Strategy.SELF_FUSION
+    aggregator: Aggregator = Aggregator.JUDGE
     panel: list[PanelMember] = Field(default_factory=list)
     judge: JudgeConfig | None = None
     self_fusion: SelfFusionConfig = Field(default_factory=SelfFusionConfig)

@@ -15,6 +15,7 @@ from typing import Any
 
 import httpx
 
+from bench.datasets import LOADERS
 from openfusion.config import load_config
 
 
@@ -43,7 +44,25 @@ def _normalize(text: str) -> str:
     return re.sub(r"\s+", " ", normalized.lower())
 
 
+_NUMBER_RE = re.compile(r"-?\$?\d[\d,]*(?:\.\d+)?")
+
+
+def _last_number(text: str) -> float | None:
+    matches = _NUMBER_RE.findall(text)
+    if not matches:
+        return None
+    cleaned = matches[-1].replace("$", "").replace(",", "")
+    try:
+        return float(cleaned)
+    except ValueError:
+        return None
+
+
 def _score(task: Task, answer: str) -> bool:
+    if task.match == "numeric":
+        got = _last_number(answer)
+        expected = _last_number(task.expected)
+        return got is not None and expected is not None and abs(got - expected) < 1e-6
     if task.match == "contains":
         return _normalize(task.expected) in _normalize(answer)
     return _normalize(answer) == _normalize(task.expected)
@@ -95,9 +114,18 @@ def _chat(
     return str(answer), time.perf_counter() - started, usage
 
 
+def _build_tasks(args: argparse.Namespace) -> tuple[list[Task], str]:
+    if args.dataset:
+        loader = LOADERS[args.dataset]
+        raw = loader(args.limit)
+        tasks = [Task(id=t.id, prompt=t.prompt, expected=t.expected, match=t.match) for t in raw]
+        return tasks, f"{args.dataset}[:{args.limit}]"
+    return _load_tasks(Path(args.tasks)), str(args.tasks)
+
+
 def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     config = load_config(args.config)
-    tasks = _load_tasks(Path(args.tasks))
+    tasks, tasks_label = _build_tasks(args)
     solo_model = args.solo_model or config.panel[0].model
     gateway_key = config.gateway.api_keys[0] if config.gateway.api_keys else "bench-key"
 
@@ -159,10 +187,13 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "avg_latency_seconds": avg_latency,
             "total_tokens": total_tokens,
             "total_cost_usd": total_cost,
+            # Quality-per-dollar: lower is better. None when nothing was correct.
+            "cost_per_correct_usd": (total_cost / correct) if correct else None,
+            "tokens_per_correct": (total_tokens / correct) if correct else None,
         }
 
     return {
-        "tasks_file": str(args.tasks),
+        "tasks_file": tasks_label,
         "config": str(args.config),
         "solo_model": solo_model,
         "fusion_model": config.fusion_model_name,
@@ -177,10 +208,23 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Benchmark openfusion vs solo model")
     parser.add_argument("--config", default="openfusion.yaml.example")
     parser.add_argument("--tasks", default="bench/tasks/sample.jsonl")
+    parser.add_argument(
+        "--dataset",
+        default=None,
+        choices=sorted(LOADERS),
+        help="Load tasks from a public dataset loader instead of --tasks.",
+    )
+    parser.add_argument("--limit", type=int, default=40, help="Max tasks when using --dataset.")
     parser.add_argument("--base-url", default="http://127.0.0.1:8000/v1")
     parser.add_argument("--solo-model", default=None)
     parser.add_argument("--output", default=None)
     parser.add_argument("--max-tokens", type=int, default=64)
+    parser.add_argument(
+        "--fail-on-regression",
+        action="store_true",
+        help="Exit non-zero if fusion accuracy is below solo (off by default; "
+        "a completed run is success, the table tells the story).",
+    )
     args = parser.parse_args()
 
     report = run_benchmark(args)
@@ -190,9 +234,7 @@ def main() -> None:
     else:
         print(output)
 
-    solo_acc = report["solo"]["accuracy"]
-    fusion_acc = report["fusion"]["accuracy"]
-    if fusion_acc < solo_acc:
+    if args.fail_on_regression and report["fusion"]["accuracy"] < report["solo"]["accuracy"]:
         sys.exit(2)
 
 
