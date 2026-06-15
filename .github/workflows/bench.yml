@@ -15,6 +15,8 @@ name: Benchmark
 #                                          member (deepseek-v4-pro): does fusion beat its best component?
 #        run-bench/research-panelstrongsynth -> like panelstrong, but synthesized by a STRONG
 #                                          model (deepseek-v4-pro): does a strong synthesizer beat the best member?
+#        run-bench/research-paneltools -> diverse panel WITH server-side web search (panel-tools config),
+#                                          web.jsonl questions, solo baseline = best member: do tools let fusion win?
 
 on:
   workflow_dispatch:
@@ -58,16 +60,19 @@ jobs:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       # Branch suffix selects the preset; workflow_dispatch inputs override.
       # 'vote' in the branch name -> vote config; 'gsm8k' -> GSM8K + bench config + 512 tokens.
-      CONFIG: ${{ github.event.inputs.config || (contains(github.ref_name, 'vote') && 'openfusion.bench-vote.yaml.example' || (contains(github.ref_name, 'strongsynth') && 'openfusion.panel-strongsynth.yaml.example' || (contains(github.ref_name, 'panel') && 'openfusion.panel.yaml.example' || ((contains(github.ref_name, 'gsm8k') || contains(github.ref_name, 'research')) && 'openfusion.bench.yaml.example' || 'openfusion.dev.yaml.example')))) }}
+      CONFIG: ${{ github.event.inputs.config || (contains(github.ref_name, 'vote') && 'openfusion.bench-vote.yaml.example' || (contains(github.ref_name, 'tools') && 'openfusion.panel-tools.yaml.example' || (contains(github.ref_name, 'strongsynth') && 'openfusion.panel-strongsynth.yaml.example' || (contains(github.ref_name, 'panel') && 'openfusion.panel.yaml.example' || ((contains(github.ref_name, 'gsm8k') || contains(github.ref_name, 'research')) && 'openfusion.bench.yaml.example' || 'openfusion.dev.yaml.example'))))) }}
       DATASET: ${{ github.event.inputs.dataset || (contains(github.ref_name, 'gsm8k') && 'gsm8k' || '') }}
       LIMIT: ${{ github.event.inputs.limit || '40' }}
       TASKS: ${{ github.event.inputs.tasks || (endsWith(github.ref_name, '/sample') && 'bench/tasks/sample.jsonl' || 'bench/tasks/smoke.jsonl') }}
       MAX_TOKENS: ${{ github.event.inputs.max_tokens || ((contains(github.ref_name, 'gsm8k') || contains(github.ref_name, 'research')) && '512' || '32') }}
       EVAL: ${{ contains(github.ref_name, 'research') && 'research' || 'accuracy' }}
+      # Research eval task file: web-dependent questions for the tools preset,
+      # otherwise the standard tool-free research set.
+      RESEARCH_TASKS: ${{ contains(github.ref_name, 'tools') && 'bench/tasks/web.jsonl' || 'bench/tasks/research.jsonl' }}
       JUDGE_MODEL: ${{ github.event.inputs.judge_model || 'google/gemini-3-flash-preview' }}
-      # 'panelstrong' overrides the solo baseline to the strongest panel member
-      # so we can ask whether fusion beats its best component (not just panel[0]).
-      SOLO_MODEL: ${{ github.event.inputs.solo_model || (contains(github.ref_name, 'panelstrong') && 'deepseek/deepseek-v4-pro' || '') }}
+      # 'panelstrong' and 'tools' override the solo baseline to the strongest panel
+      # member so we ask whether fusion beats its best component (not just panel[0]).
+      SOLO_MODEL: ${{ github.event.inputs.solo_model || ((contains(github.ref_name, 'panelstrong') || contains(github.ref_name, 'tools')) && 'deepseek/deepseek-v4-pro' || '') }}
     steps:
       - uses: actions/checkout@v4
 
@@ -111,7 +116,7 @@ jobs:
             echo "Running: research_eval (pairwise) with $CONFIG, judge $JUDGE_MODEL, solo ${SOLO_MODEL:-panel[0]}"
             python bench/research_eval.py \
               --config "$CONFIG" \
-              --tasks bench/tasks/research.jsonl \
+              --tasks "$RESEARCH_TASKS" \
               --judge-model "$JUDGE_MODEL" \
               $SOLO_ARG \
               --max-tokens "$MAX_TOKENS" \
