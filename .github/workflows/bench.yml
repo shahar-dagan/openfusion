@@ -5,9 +5,10 @@ name: Benchmark
 # Two ways to start it, both presetting by branch suffix:
 #   1. Actions tab -> Benchmark -> Run workflow (manual dispatch, overridable).
 #   2. Push a branch under run-bench/** to fire it. Branch suffix presets:
-#        run-bench/smoke   -> smoke.jsonl,  dev config,   max_tokens 32 (default)
-#        run-bench/sample  -> sample.jsonl, dev config,   max_tokens 32
-#        run-bench/gsm8k   -> GSM8K loader, bench config,  max_tokens 512
+#        run-bench/smoke       -> smoke.jsonl,  dev config,        max_tokens 32 (default)
+#        run-bench/sample      -> sample.jsonl, dev config,        max_tokens 32
+#        run-bench/gsm8k       -> GSM8K loader, bench config,      max_tokens 512 (judge)
+#        run-bench/gsm8k-vote  -> GSM8K loader, bench-vote config, max_tokens 512 (vote)
 
 on:
   workflow_dispatch:
@@ -42,11 +43,12 @@ jobs:
     env:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       # Branch suffix selects the preset; workflow_dispatch inputs override.
-      CONFIG: ${{ github.event.inputs.config || (endsWith(github.ref_name, '/gsm8k') && 'openfusion.bench.yaml.example' || 'openfusion.dev.yaml.example') }}
-      DATASET: ${{ github.event.inputs.dataset || (endsWith(github.ref_name, '/gsm8k') && 'gsm8k' || '') }}
+      # 'vote' in the branch name -> vote config; 'gsm8k' -> GSM8K + bench config + 512 tokens.
+      CONFIG: ${{ github.event.inputs.config || (contains(github.ref_name, 'vote') && 'openfusion.bench-vote.yaml.example' || (contains(github.ref_name, 'gsm8k') && 'openfusion.bench.yaml.example' || 'openfusion.dev.yaml.example')) }}
+      DATASET: ${{ github.event.inputs.dataset || (contains(github.ref_name, 'gsm8k') && 'gsm8k' || '') }}
       LIMIT: ${{ github.event.inputs.limit || '40' }}
       TASKS: ${{ github.event.inputs.tasks || (endsWith(github.ref_name, '/sample') && 'bench/tasks/sample.jsonl' || 'bench/tasks/smoke.jsonl') }}
-      MAX_TOKENS: ${{ github.event.inputs.max_tokens || (endsWith(github.ref_name, '/gsm8k') && '512' || '32') }}
+      MAX_TOKENS: ${{ github.event.inputs.max_tokens || (contains(github.ref_name, 'gsm8k') && '512' || '32') }}
     steps:
       - uses: actions/checkout@v4
 

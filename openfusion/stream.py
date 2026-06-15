@@ -13,6 +13,7 @@ from openfusion.config import OpenFusionConfig
 from openfusion.panel import PanelResult, gather_panel
 from openfusion.synthesize import synthesize
 from openfusion.upstream import UpstreamClient
+from openfusion.vote import majority_vote
 
 
 def _sse_line(event: str | None, data: str) -> str:
@@ -170,6 +171,93 @@ def _build_usage_payload(
             total["cost"] = panel_usage.get("cost", 0.0) + judge_usage.get("cost", 0.0)
         payload["total"] = total
     return payload
+
+
+async def vote_and_stream(
+    request_body: dict[str, Any],
+    config: OpenFusionConfig,
+    client: UpstreamClient,
+    *,
+    cancel_event: asyncio.Event | None = None,
+) -> AsyncIterator[str]:
+    """Gather the panel, majority-vote, and emit the winning answer as SSE."""
+    chunk_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
+    created = int(time.time())
+    model = config.fusion_model_name
+
+    yield _sse_line(
+        "progress",
+        json.dumps({"stage": "panel", "message": "Gathering panel responses"}),
+    )
+
+    panel = await gather_panel(request_body, config, client, cancel_event=cancel_event)
+    content, vote_meta = majority_vote(panel)
+
+    yield _sse_line(
+        "progress",
+        json.dumps(
+            {
+                "stage": "vote",
+                "message": "Majority vote over panel answers",
+                "panel_count": len(panel.responses),
+                "failed_count": len(panel.failures),
+                "agreement": vote_meta.get("agreement"),
+            }
+        ),
+    )
+
+    yield _sse_line(
+        None,
+        json.dumps(
+            _chunk(
+                chunk_id=chunk_id,
+                created=created,
+                model=model,
+                delta={"role": "assistant", "content": content},
+                finish_reason=None,
+            )
+        ),
+    )
+    yield _sse_line(
+        None,
+        json.dumps(
+            _chunk(chunk_id=chunk_id, created=created, model=model, delta={}, finish_reason="stop")
+        ),
+    )
+
+    usage_payload = _build_usage_payload(panel, None)
+    if usage_payload:
+        yield _sse_line("usage", json.dumps(usage_payload))
+
+    yield _sse_line(None, "[DONE]")
+
+
+async def buffer_vote(
+    request_body: dict[str, Any],
+    config: OpenFusionConfig,
+    client: UpstreamClient,
+) -> dict[str, Any]:
+    """Non-streaming majority vote over the panel."""
+    panel = await gather_panel(request_body, config, client)
+    content, _ = majority_vote(panel)
+
+    response: dict[str, Any] = {
+        "id": f"chatcmpl-{uuid.uuid4().hex[:24]}",
+        "object": "chat.completion",
+        "created": int(time.time()),
+        "model": config.fusion_model_name,
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": content},
+                "finish_reason": "stop",
+            }
+        ],
+    }
+    panel_usage = panel.usage_total
+    if panel_usage:
+        response["usage"] = panel_usage
+    return response
 
 
 async def buffer_synthesis(
