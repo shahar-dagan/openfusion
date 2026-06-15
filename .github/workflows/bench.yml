@@ -79,7 +79,7 @@ jobs:
       - name: Write job summary
         if: always()
         run: |
-          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          python - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
           import json
           import pathlib
 
