@@ -19,14 +19,44 @@ python bench/run.py \
 |------|---------|-------------|
 | `--config` | `openfusion.yaml.example` | openfusion config with panel/judge |
 | `--tasks` | `bench/tasks/sample.jsonl` | JSONL task file |
+| `--dataset` | none | Public dataset loader (`gsm8k`); overrides `--tasks` |
+| `--limit` | `40` | Max tasks when using `--dataset` |
 | `--base-url` | `http://127.0.0.1:8000/v1` | openfusion proxy URL |
 | `--solo-model` | from config panel | Model name for solo baseline |
 | `--output` | stdout | Write JSON results to file |
 | `--max-tokens` | `64` | Per-call output cap for both solo and fusion requests |
+| `--fail-on-regression` | off | Exit non-zero if fusion accuracy < solo (off by default) |
+
+## Quality per dollar
+
+The point of fusion is rarely "win on an easy set" — it is reaching a quality bar more cheaply, or
+adding reliability where a single call is shaky. So each mode reports not just `accuracy` but
+`total_cost_usd`, `total_tokens`, **`cost_per_correct_usd`**, and `tokens_per_correct`. Compare
+`cost_per_correct_usd` across modes to see whether fanning out actually buys anything.
+
+A completed run exits 0 even if fusion does not beat solo — the table is the result, not a
+pass/fail. Use `--fail-on-regression` if you want CI to go red on an accuracy regression.
+
+## Harder eval (GSM8K)
+
+Easy sets saturate (solo already ~100%), leaving no room for fusion to help. For a reasoning set
+with headroom, use the GSM8K loader with the higher-ceiling bench config:
+
+```bash
+python bench/run.py \
+  --config openfusion.bench.yaml.example \
+  --dataset gsm8k --limit 40 \
+  --max-tokens 512 \
+  --output bench/results/latest.json
+```
+
+GSM8K answers are graded with the `numeric` match mode (the final number in the response is
+compared to the gold answer). The test split is fetched once from the public
+`openai/grade-school-math` repo and cached under `bench/.cache/` (gitignored).
 
 ## Task format
 
-Each line in the JSONL file:
+Each line in a `--tasks` JSONL file:
 
 ```json
 {"id": "q1", "prompt": "...", "expected": "42", "match": "exact"}
@@ -36,6 +66,7 @@ Supported `match` modes:
 
 - `exact` — normalized string equality
 - `contains` — expected substring appears in answer
+- `numeric` — the last number in the answer equals the expected number (used by GSM8K)
 
 ## Reproducing README numbers
 
@@ -52,10 +83,18 @@ The sample set is small (20 tasks) and intended as a smoke benchmark, not a fron
 ## Running in CI
 
 The `Benchmark` GitHub Actions workflow (`.github/workflows/bench.yml`) runs this head-to-head
-against the repo's `OPENROUTER_API_KEY` secret, so the key never touches a local session. It is
-**manual dispatch only** (Actions tab → Benchmark → Run workflow) because it spends real credits.
-Defaults are the cheap smoke set with `--max-tokens 32`; results are published as a job summary
-table and a `bench-results` artifact.
+against the repo's `OPENROUTER_API_KEY` secret, so the key never touches a local session. Because
+it spends real credits, it runs only on manual dispatch (Actions tab → Benchmark → Run workflow)
+or when a `run-bench/**` branch is pushed. The branch suffix selects a preset:
+
+| Branch | Tasks | Config | max_tokens |
+|--------|-------|--------|------------|
+| `run-bench/smoke` | `smoke.jsonl` | dev | 32 |
+| `run-bench/sample` | `sample.jsonl` | dev | 32 |
+| `run-bench/gsm8k` | GSM8K (`--limit 40`) | bench | 512 |
+
+`workflow_dispatch` inputs override any preset. Results are published as a job summary table
+(accuracy, latency, tokens, cost, **$/correct**) and a `bench-results` artifact.
 
 ## Security
 

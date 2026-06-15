@@ -2,9 +2,12 @@ name: Benchmark
 
 # Runs the self-fusion vs solo head-to-head against a live OpenRouter key.
 # This spends real provider credits, so it never runs on normal pushes/PRs.
-# Two ways to start it, both defaulting to the cheap smoke set + low ceiling:
+# Two ways to start it, both presetting by branch suffix:
 #   1. Actions tab -> Benchmark -> Run workflow (manual dispatch, overridable).
-#   2. Push a branch under run-bench/** (e.g. run-bench/smoke) to fire it.
+#   2. Push a branch under run-bench/** to fire it. Branch suffix presets:
+#        run-bench/smoke   -> smoke.jsonl,  dev config,   max_tokens 32 (default)
+#        run-bench/sample  -> sample.jsonl, dev config,   max_tokens 32
+#        run-bench/gsm8k   -> GSM8K loader, bench config,  max_tokens 512
 
 on:
   workflow_dispatch:
@@ -14,8 +17,16 @@ on:
         default: "openfusion.dev.yaml.example"
         type: string
       tasks:
-        description: "JSONL task file"
+        description: "JSONL task file (ignored if dataset is set)"
         default: "bench/tasks/smoke.jsonl"
+        type: string
+      dataset:
+        description: "Public dataset loader (e.g. gsm8k); blank uses tasks"
+        default: ""
+        type: string
+      limit:
+        description: "Max tasks when using a dataset"
+        default: "40"
         type: string
       max_tokens:
         description: "Per-call output cap (both solo and fusion)"
@@ -30,11 +41,12 @@ jobs:
     runs-on: ubuntu-latest
     env:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-      CONFIG: ${{ github.event.inputs.config || 'openfusion.dev.yaml.example' }}
-      # Push path picks the task set by branch suffix: run-bench/sample -> sample,
-      # anything else -> smoke. workflow_dispatch input still overrides both.
+      # Branch suffix selects the preset; workflow_dispatch inputs override.
+      CONFIG: ${{ github.event.inputs.config || (endsWith(github.ref_name, '/gsm8k') && 'openfusion.bench.yaml.example' || 'openfusion.dev.yaml.example') }}
+      DATASET: ${{ github.event.inputs.dataset || (endsWith(github.ref_name, '/gsm8k') && 'gsm8k' || '') }}
+      LIMIT: ${{ github.event.inputs.limit || '40' }}
       TASKS: ${{ github.event.inputs.tasks || (endsWith(github.ref_name, '/sample') && 'bench/tasks/sample.jsonl' || 'bench/tasks/smoke.jsonl') }}
-      MAX_TOKENS: ${{ github.event.inputs.max_tokens || '32' }}
+      MAX_TOKENS: ${{ github.event.inputs.max_tokens || (endsWith(github.ref_name, '/gsm8k') && '512' || '32') }}
     steps:
       - uses: actions/checkout@v4
 
@@ -72,11 +84,14 @@ jobs:
       - name: Run benchmark
         run: |
           mkdir -p bench/results
-          python bench/run.py \
-            --config "$CONFIG" \
-            --tasks "$TASKS" \
-            --max-tokens "$MAX_TOKENS" \
-            --output bench/results/latest.json
+          ARGS="--config $CONFIG --max-tokens $MAX_TOKENS --output bench/results/latest.json"
+          if [ -n "$DATASET" ]; then
+            ARGS="$ARGS --dataset $DATASET --limit $LIMIT"
+          else
+            ARGS="$ARGS --tasks $TASKS"
+          fi
+          echo "Running: python bench/run.py $ARGS"
+          python bench/run.py $ARGS
 
       - name: Write job summary
         if: always()
@@ -94,9 +109,11 @@ jobs:
 
           def row(label, s):
               acc = f"{s['accuracy'] * 100:.1f}% ({s['correct']}/{s['total']})"
+              cpc = s.get("cost_per_correct_usd")
+              cpc_str = f"${cpc:.5f}" if cpc is not None else "n/a"
               return (
                   f"| {label} | {acc} | {s['avg_latency_seconds']:.2f}s "
-                  f"| {s['total_tokens']} | ${s['total_cost_usd']:.4f} |"
+                  f"| {s['total_tokens']} | ${s['total_cost_usd']:.4f} | {cpc_str} |"
               )
 
           print("## openfusion benchmark\n")
@@ -104,8 +121,8 @@ jobs:
           print(f"- Tasks: `{report['tasks_file']}`")
           print(f"- Solo model: `{report['solo_model']}`  Fusion: `{report['fusion_model']}`")
           print(f"- max_tokens: {report['max_tokens']}\n")
-          print("| Mode | Accuracy | Avg latency | Tokens | Cost |")
-          print("|------|----------|-------------|--------|------|")
+          print("| Mode | Accuracy | Avg latency | Tokens | Cost | $/correct |")
+          print("|------|----------|-------------|--------|------|-----------|")
           print(row("Solo", report["solo"]))
           print(row("Fusion", report["fusion"]))
           PY
