@@ -30,6 +30,24 @@ judge), not publication-grade.
 | Open-ended | diverse panel, strong synth | **best** member (deepseek-v4-pro) | **29%** | 17–46% | ~4× |
 | Web-dependent, **tools on both sides** | diverse panel w/ web_search+fetch | **best** member (deepseek-v4-pro, also w/ tools) | **79%** | 52–92% | ~2× |
 
+### DRACO (rubric-graded, the credible benchmark)
+
+The pairwise rows above use an LLM judge picking a winner. DRACO instead grades
+each answer against its ~40 weighted criteria (errors carry negative weight) and
+reports a normalized 0–100 score — the methodology behind OpenRouter's result.
+Subset of 10 tasks, tools (`web_search`+`web_fetch`) identical on both sides,
+`gemini-3-flash` grader, 1 grading pass, 2048-token answers, 0 errors:
+
+| System | Mean DRACO score | Per-domain (solo→fusion) |
+|--------|-----------------|--------------------------|
+| Solo (deepseek-v4-pro, tools) | **17.2%** | Medicine 48.7, Shopping 23.9, Tech 26.0, Finance 0, Academic 0, Personalized 0 |
+| Fusion (budget panel, tools) | **42.1%** (**+24.9**) | Medicine 85.9, Shopping 59.4, Tech 32.3, Finance 46.1, Academic 0, Personalized 0 |
+
+Fusion scored ≥ solo on **10/10** tasks (won 6, tied 4, lost 0). Absolute scores
+run well below OpenRouter's (~60s) because of the 2048-token answer cap, a single
+grading pass, and a flash-tier grader; the **relative gap is the signal**, and
+DRACO's authors note system rankings are stable across judge/format choices.
+
 ## What it means
 
 1. **Wrong regime kills fusion.** On saturated short-answer/math there is one
@@ -72,6 +90,12 @@ judge), not publication-grade.
   `github.com/The-LLM-Data-Company/rubric`), tools already identical across
   configs, and `excluded_domains` is wired for rubric-contamination control.
   Ideally add a frontier solo baseline (not just the best budget member).
+  *(Done at subset scale: `run-bench/draco` rubric-graded 10 tasks, fusion
+  42.1% vs solo 17.2%, +24.9, 0 errors — see the DRACO table above.)*
+- **To harden the DRACO number:** scale to the full 100 tasks, raise the answer
+  cap (2048 truncates deep-research reports — likely the main reason absolute
+  scores trail OpenRouter's), and grade 3× with a stronger judge
+  (gemini-3-pro / sonnet-4.6) per the paper.
 
 ## Caveats
 
