@@ -193,6 +193,8 @@ jobs:
               print(f"| Fusion mean score | {pct(s['fusion_mean'])} |")
               print(f"| Delta (fusion - solo) | {pct(s['delta_mean'])} |")
               print(f"| Fusion better (of {s['paired_n']} paired) | {s['fusion_better']} |")
+              for reason in s.get("error_sample") or []:
+                  print(f"\n> error: {reason}")
               by_domain = s.get("by_domain") or {}
               if by_domain:
                   print("\n| Domain | Solo | Fusion |")

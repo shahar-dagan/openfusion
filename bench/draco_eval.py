@@ -15,13 +15,40 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 import re
 import statistics
 import sys
+import time
 from dataclasses import asdict, dataclass
 from typing import Any
 
 import httpx
+
+_RETRY_STATUS = {429, 500, 502, 503, 504}
+
+
+def _chat_with_retry(*args: Any, attempts: int = 4, **kwargs: Any) -> tuple[str, float, dict]:
+    """_chat with exponential backoff on transient upstream errors (429/5xx).
+
+    Agentic tool use is bursty; without this a brief rate-limit wipes out most
+    of a run (8/10 tasks in the first attempt). Re-raises after the last try.
+    """
+    for attempt in range(attempts):
+        try:
+            return _chat(*args, **kwargs)
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            if status in _RETRY_STATUS and attempt < attempts - 1:
+                time.sleep(min(2**attempt + random.random(), 30.0))
+                continue
+            raise
+        except httpx.HTTPError:
+            if attempt < attempts - 1:
+                time.sleep(min(2**attempt + random.random(), 30.0))
+                continue
+            raise
+    raise RuntimeError("unreachable")
 
 from bench.draco import Criterion, DracoTask, load_draco, normalized_score
 from bench.run import _chat
@@ -92,15 +119,18 @@ def _grade(
     )
     scores: list[float] = []
     for _ in range(grading_runs):
-        verdict, _, _ = _chat(
-            client,
-            base_url=base_url,
-            model=judge_model,
-            prompt=prompt,
-            api_key=api_key,
-            max_tokens=2048,
-            temperature=0.2,
-        )
+        try:
+            verdict, _, _ = _chat_with_retry(
+                client,
+                base_url=base_url,
+                model=judge_model,
+                prompt=prompt,
+                api_key=api_key,
+                max_tokens=2048,
+                temperature=0.2,
+            )
+        except httpx.HTTPError:
+            continue
         met = _parse_met(verdict, len(task.criteria))
         if met is not None:
             scores.append(normalized_score(task.criteria, met))
@@ -125,7 +155,7 @@ def run_eval(args: argparse.Namespace) -> dict[str, Any]:
                 errors.append(f"{task.id}:no-rubric")
                 continue
             try:
-                solo_answer, _, _ = _chat(
+                solo_answer, _, _ = _chat_with_retry(
                     client,
                     base_url=args.base_url,
                     model=solo_model,
@@ -134,7 +164,7 @@ def run_eval(args: argparse.Namespace) -> dict[str, Any]:
                     max_tokens=args.answer_tokens,
                     extra_body=solo_extra,
                 )
-                fusion_answer, _, _ = _chat(
+                fusion_answer, _, _ = _chat_with_retry(
                     client,
                     base_url=args.base_url,
                     model=config.fusion_model_name,
@@ -143,8 +173,9 @@ def run_eval(args: argparse.Namespace) -> dict[str, Any]:
                     max_tokens=args.answer_tokens,
                 )
             except (httpx.HTTPError, KeyError, ValueError) as exc:
-                print(f"task {task.id} failed: {type(exc).__name__}: {exc}", file=sys.stderr)
-                errors.append(f"{task.id}:answer-error")
+                reason = f"{task.id}: {type(exc).__name__}: {str(exc)[:200]}"
+                print(f"task failed: {reason}", file=sys.stderr)
+                errors.append(reason)
                 continue
 
             solo_score = _grade(
@@ -211,6 +242,7 @@ def summarize(
         "summary": {
             "n": len(scores),
             "errors": len(errors),
+            "error_sample": errors[:5],
             "solo_mean": _mean(solo_vals),
             "fusion_mean": _mean(fusion_vals),
             "delta_mean": _mean(deltas),
@@ -259,6 +291,8 @@ def main() -> None:
         f"fusion better on {s['fusion_better']}/{s['paired_n']}, errors {s['errors']})",
         file=sys.stderr,
     )
+    for reason in s.get("error_sample", []):
+        print(f"  error: {reason}", file=sys.stderr)
 
 
 if __name__ == "__main__":
