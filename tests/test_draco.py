@@ -30,6 +30,39 @@ def test_parse_rubric_from_json_string() -> None:
     assert criteria[2].category == "factual"
 
 
+def test_parse_rubric_real_draco_sections_shape() -> None:
+    # The actual DRACO shape: nested sections, each with criteria using
+    # 'weight' and 'requirement', section 'title' as the category.
+    answer = json.dumps(
+        {
+            "id": "staggered-did-methodology-evaluation",
+            "sections": [
+                {
+                    "id": "factual-accuracy",
+                    "title": "Factual Accuracy",
+                    "criteria": [
+                        {"id": "c1", "weight": 10, "requirement": "States TWFE is var-weighted"},
+                        {"id": "c2", "weight": -25, "requirement": "Gives dangerous advice"},
+                    ],
+                },
+                {
+                    "id": "citation-quality",
+                    "title": "Citation Quality",
+                    "criteria": [
+                        {"id": "c3", "weight": 5, "requirement": "Cites a primary source"},
+                    ],
+                },
+            ],
+        }
+    )
+    criteria = _parse_rubric(answer)
+    assert len(criteria) == 3
+    assert [c.weight for c in criteria] == [10.0, -25.0, 5.0]
+    assert criteria[0].text == "States TWFE is var-weighted"
+    assert criteria[0].category == "Factual Accuracy"
+    assert criteria[2].category == "Citation Quality"
+
+
 def test_criterion_from_alternate_field_names() -> None:
     c = _criterion_from({"text": "foo", "points": 7, "axis": "presentation"})
     assert c == Criterion(text="foo", weight=7.0, category="presentation")

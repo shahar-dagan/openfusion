@@ -82,10 +82,10 @@ def _first(d: dict, keys: tuple[str, ...]) -> object | None:
     return None
 
 
-def _criterion_from(d: dict) -> Criterion:
+def _criterion_from(d: dict, category: str | None = None) -> Criterion:
     text = _first(d, _TEXT_KEYS)
     weight = _first(d, _WEIGHT_KEYS)
-    category = _first(d, _CATEGORY_KEYS)
+    cat = category if category is not None else _first(d, _CATEGORY_KEYS)
     try:
         weight_val = float(weight) if isinstance(weight, (int, float)) else 0.0
     except (TypeError, ValueError):
@@ -93,16 +93,35 @@ def _criterion_from(d: dict) -> Criterion:
     return Criterion(
         text=str(text) if text is not None else "",
         weight=weight_val,
-        category=str(category) if category is not None else None,
+        category=str(cat) if cat is not None else None,
     )
 
 
 def _parse_rubric(answer: object) -> list[Criterion]:
+    """Flatten a DRACO rubric into weighted criteria.
+
+    The real shape is {"id", "sections": [{"id","title","criteria":[...]}, ...]}
+    where each criterion is {"id","weight","requirement"}; the section title is
+    used as the criterion's category. Falls back to a flat criteria list for
+    other shapes.
+    """
     if isinstance(answer, str):
         try:
             answer = json.loads(answer)
         except json.JSONDecodeError:
             return []
+
+    if isinstance(answer, dict) and isinstance(answer.get("sections"), list):
+        criteria: list[Criterion] = []
+        for section in answer["sections"]:
+            if not isinstance(section, dict):
+                continue
+            category = section.get("title") or section.get("id")
+            for c in section.get("criteria") or []:
+                if isinstance(c, dict):
+                    criteria.append(_criterion_from(c, str(category) if category else None))
+        return criteria
+
     return [_criterion_from(c) for c in _find_criteria_list(answer)]
 
 
