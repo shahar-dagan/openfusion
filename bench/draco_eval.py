@@ -25,6 +25,11 @@ from typing import Any
 
 import httpx
 
+from bench.draco import Criterion, DracoTask, load_draco, normalized_score
+from bench.run import _chat
+from openfusion.config import load_config
+from openfusion.tools import build_web_tools
+
 _RETRY_STATUS = {429, 500, 502, 503, 504}
 
 
@@ -49,11 +54,6 @@ def _chat_with_retry(*args: Any, attempts: int = 4, **kwargs: Any) -> tuple[str,
                 continue
             raise
     raise RuntimeError("unreachable")
-
-from bench.draco import Criterion, DracoTask, load_draco, normalized_score
-from bench.run import _chat
-from openfusion.config import load_config
-from openfusion.tools import build_web_tools
 
 GRADE_PROMPT = (
     "You are a strict, impartial grader applying a rubric to a response.\n\n"
