@@ -24,30 +24,39 @@ from openfusion.errors import (
     UpstreamError,
 )
 from openfusion.metrics import METRICS
+from openfusion.router import RouteDecision, route
 from openfusion.stream import (
     buffer_synthesis,
     buffer_vote,
     synthesize_and_stream,
     vote_and_stream,
 )
+from openfusion.tools import tools_are_server_executable
 from openfusion.upstream import UpstreamClient
 
 FUSION_MODEL = "openfusion"
 LANDING_PAGE_DIR = Path(__file__).resolve().parent / "static" / "landing"
 
 
-def _has_tool_calls(body: dict[str, Any]) -> bool:
+def _requires_pass_through_tools(body: dict[str, Any]) -> bool:
+    """True when the request carries tools that fusion can't handle.
+
+    A mid-conversation tool exchange (assistant ``tool_calls`` / ``tool`` results)
+    or client-side function tools must pass through to a single model. Tools the
+    upstream executes server-side (web search/fetch) are fine to fuse, because the
+    panel runs them upstream and returns a final text answer.
+    """
     messages = body.get("messages")
-    if not isinstance(messages, list):
-        return False
-    for message in messages:
-        if not isinstance(message, dict):
-            continue
-        if message.get("tool_calls"):
-            return True
-        if message.get("role") == "tool":
-            return True
-    return bool(body.get("tools") or body.get("functions"))
+    if isinstance(messages, list):
+        for message in messages:
+            if not isinstance(message, dict):
+                continue
+            if message.get("tool_calls") or message.get("role") == "tool":
+                return True
+    if body.get("functions") or body.get("function_call"):
+        return True
+    tools = body.get("tools")
+    return bool(tools) and not tools_are_server_executable(tools)
 
 
 def _validate_gateway_auth(
@@ -153,7 +162,7 @@ def create_app(config: OpenFusionConfig | None = None) -> FastAPI:
         authorization: str | None = Header(default=None),
     ) -> Any:
         started = time.perf_counter()
-        route = "fusion"
+        route_label = "fusion"
         try:
             _validate_gateway_auth(cfg, authorization)
             body = await request.json()
@@ -168,8 +177,18 @@ def create_app(config: OpenFusionConfig | None = None) -> FastAPI:
             policy.validate_max_tokens(body)
             stream = bool(body.get("stream", False))
 
-            if model != cfg.fusion_model_name or _has_tool_calls(body):
-                route = "pass_through"
+            wants_fusion = model == cfg.fusion_model_name and not _requires_pass_through_tools(
+                body
+            )
+            if (
+                wants_fusion
+                and cfg.router.enabled
+                and route(body, cfg.router) == RouteDecision.SOLO
+            ):
+                wants_fusion = False
+
+            if not wants_fusion:
+                route_label = "pass_through"
                 limited_body = policy.apply_token_limit(
                     body,
                     RequestPhase.PASS_THROUGH,
@@ -179,7 +198,7 @@ def create_app(config: OpenFusionConfig | None = None) -> FastAPI:
                     limited_body, cfg, client, stream=stream, started=started
                 )
                 if not stream:
-                    _record_request(route, "success", started)
+                    _record_request(route_label, "success", started)
                 return response
 
             if cfg.aggregator == Aggregator.JUDGE:
@@ -194,16 +213,16 @@ def create_app(config: OpenFusionConfig | None = None) -> FastAPI:
                 if cfg.aggregator == Aggregator.VOTE
                 else await buffer_synthesis(body, cfg, client)
             )
-            _record_request(route, "success", started)
+            _record_request(route_label, "success", started)
             return JSONResponse(content=payload)
         except OpenFusionError as exc:
-            _record_request(route, "error", started)
+            _record_request(route_label, "error", started)
             return _error_response(exc)
         except json.JSONDecodeError as exc:
-            _record_request(route, "error", started)
+            _record_request(route_label, "error", started)
             return _error_response(InvalidRequestError(f"Invalid JSON: {exc}"))
         except Exception as exc:  # noqa: BLE001
-            _record_request(route, "error", started)
+            _record_request(route_label, "error", started)
             return _error_response(UpstreamError(str(exc)))
 
     return app

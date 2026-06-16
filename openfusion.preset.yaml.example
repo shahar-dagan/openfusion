@@ -32,5 +32,16 @@ preset: budget   # or: quality
 # tools:
 #   web_search: false
 
+# Auto Router: answer simple prompts with one model, fuse only the hard ones.
+# router:
+#   enabled: true
+#   mode: heuristic     # heuristic | always | never
+#   min_chars: 280
+
+# Multi-round debate: panel members revise after seeing each other's answers.
+# strategy: debate
+# debate:
+#   rounds: 1
+
 gateway:
   api_keys: []

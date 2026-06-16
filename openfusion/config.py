@@ -19,6 +19,15 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 class Strategy(StrEnum):
     PANEL = "panel"
     SELF_FUSION = "self_fusion"
+    DEBATE = "debate"
+
+
+class RouterMode(StrEnum):
+    """How the pre-panel router decides between fusing and a single model."""
+
+    HEURISTIC = "heuristic"  # cheap prompt-shape signals decide
+    ALWAYS = "always"  # always fuse
+    NEVER = "never"  # always answer with a single pass-through call
 
 
 class Preset(StrEnum):
@@ -95,6 +104,43 @@ class SelfFusionConfig(BaseModel):
     seed_offset: bool = True
 
 
+_DEFAULT_FUSE_KEYWORDS = [
+    "compare",
+    "trade-off",
+    "tradeoff",
+    "analyze",
+    "analyse",
+    "evaluate",
+    "design",
+    "research",
+    "pros and cons",
+    "why",
+    "explain",
+    "critique",
+    "recommend",
+]
+
+
+class RouterConfig(BaseModel):
+    """Per-prompt gate: send simple prompts to a single model, fuse hard ones.
+
+    Disabled by default — when off, every `openfusion` request is fused. When on,
+    short/simple prompts are answered by one pass-through call (cheaper, faster)
+    and only prompts that look like they benefit from a panel are fused.
+    """
+
+    enabled: bool = False
+    mode: RouterMode = RouterMode.HEURISTIC
+    min_chars: int = Field(default=280, ge=0)
+    fuse_keywords: list[str] = Field(default_factory=lambda: list(_DEFAULT_FUSE_KEYWORDS))
+
+
+class DebateConfig(BaseModel):
+    """Multi-round panel: members revise after seeing each other's answers."""
+
+    rounds: int = Field(default=1, ge=1, le=3)
+
+
 class TimeoutsConfig(BaseModel):
     member_seconds: float = Field(default=120.0, gt=0)
     judge_seconds: float = Field(default=180.0, gt=0)
@@ -151,6 +197,8 @@ class OpenFusionConfig(BaseModel):
     panel: list[PanelMember] = Field(default_factory=list)
     judge: JudgeConfig | None = None
     self_fusion: SelfFusionConfig = Field(default_factory=SelfFusionConfig)
+    debate: DebateConfig = Field(default_factory=DebateConfig)
+    router: RouterConfig = Field(default_factory=RouterConfig)
     timeouts: TimeoutsConfig = Field(default_factory=TimeoutsConfig)
     gateway: GatewayAuthConfig = Field(default_factory=GatewayAuthConfig)
     cost_controls: CostControlsConfig = Field(default_factory=CostControlsConfig)

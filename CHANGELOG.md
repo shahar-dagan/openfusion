@@ -7,6 +7,18 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Auto Router** (`router.enabled`) — a per-prompt gate that answers simple prompts with a single
+  pass-through call and reserves the panel for prompts that benefit (long, analytical, or code).
+  Heuristic, no extra model call; `mode: heuristic | always | never`.
+- **Debate strategy** (`strategy: debate`) — a diverse panel where each member revises after seeing
+  the others' answers (`debate.rounds`) before the judge synthesizes.
+- **Fusion-aware tool calling** — requests whose tools are server-executable
+  (`openrouter:web_search`/`web_fetch`) now fuse instead of passing through; client-side function
+  tools and mid-conversation tool turns still pass through.
+- PyPI publish step in the release workflow, gated on a `PYPI_API_TOKEN` secret (no-op until set).
+- Benchmark workflow bound to a protected `bench` environment for spend control.
+
+### Added (earlier in this cycle)
 - `preset: quality | budget` config switch — expands to a diverse OpenRouter
   panel + judge with web search/fetch enabled by default (the regime where
   synthesis beats the best single member per `bench/FINDINGS.md`). Mirrors

@@ -61,6 +61,35 @@ for chunk in stream:
     print(chunk.choices[0].delta.content or "", end="")
 ```
 
+## Routing & strategies
+
+Three knobs control *whether* and *how* a prompt is fused. All are optional and off/default.
+
+- **Auto Router** (`router.enabled: true`) — a per-prompt gate that answers simple prompts with a
+  single pass-through call and reserves the panel for prompts that look like they benefit (long,
+  analytical, or containing code). It's a cheap heuristic, no extra model call:
+
+  ```yaml
+  router:
+    enabled: true
+    mode: heuristic     # heuristic | always | never
+    min_chars: 280      # prompts at/over this length fuse
+  ```
+
+- **Strategy** (`strategy:`) — how the panel is produced: `self_fusion` (one model sampled N times),
+  `panel` (a fixed diverse panel), or `debate` (a diverse panel where each member revises after
+  seeing the others' answers, then the judge synthesizes). Debate trades extra cost/latency for
+  cross-examination:
+
+  ```yaml
+  strategy: debate
+  debate:
+    rounds: 1           # revision rounds before the judge
+  ```
+
+- **Aggregator** (`aggregator:`) — how answers become one: `judge` (synthesis, default) or `vote`
+  (majority vote, cheaper, best for verifiable short-answer tasks).
+
 ## How it works
 
 ```
@@ -96,7 +125,8 @@ differences are scale and a per-prompt router.
 | Override panel + judge | ✅ (plugin fields) | ✅ (any `{base_url, api_key, model}` in YAML) |
 | Per-call cost breakdown | ✅ (Activity) | ✅ (SSE `usage` event + `/metrics`) |
 | Self-hostable / forkable | ❌ closed API | ✅ MIT, any OpenAI-compatible provider |
-| Per-prompt Auto Router | ✅ | ❌ not yet (see [DESIGN.md](DESIGN.md)) |
+| Per-prompt Auto Router | ✅ | ✅ heuristic gate (`router.enabled`); no LLM classifier yet |
+| Multi-round debate | — | ✅ `strategy: debate` |
 | Headline benchmark | full DRACO (100 tasks) | DRACO subset (10 tasks) — see [bench/FINDINGS.md](bench/FINDINGS.md) |
 
 ## Parameter precedence
@@ -106,7 +136,7 @@ differences are scale and a per-prompt router.
 | `temperature` (client) | Judge only indirectly via recipe | Self-fusion varies panel temps from config, not client |
 | `max_tokens`, `stop`, `response_format` | Judge (visible output) | Panel members use recipe defaults |
 | `stream`, `stream_options` | Judge path | Panel always runs non-streamed internally |
-| `tools` / `tool_calls` | Pass-through only | Tool requests skip fusion in MVP |
+| `tools` / `tool_calls` | Fusion or pass-through | Server-executable web tools (`openrouter:web_search`/`web_fetch`) are fused; client-side function tools and mid-conversation tool turns pass through |
 
 ## Environment variables
 

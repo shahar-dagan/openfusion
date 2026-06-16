@@ -125,6 +125,10 @@ async def synthesize(
     judge_body = copy.deepcopy(request_body)
     judge_body["messages"] = build_judge_messages(messages, panel, judge)
     judge_body.pop("model", None)
+    # The judge synthesizes the final text answer; it must not emit tool calls.
+    # Client-supplied tools were already run by the panel (when server-executable).
+    for tool_key in ("tools", "tool_choice", "functions", "function_call"):
+        judge_body.pop(tool_key, None)
     judge_body["stream"] = True
     if request_body.get("stream_options"):
         judge_body["stream_options"] = request_body["stream_options"]
