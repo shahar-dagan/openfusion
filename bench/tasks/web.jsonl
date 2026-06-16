@@ -1,0 +1,24 @@
+{"id": "web-py-latest", "prompt": "What is the latest stable release of Python as of mid-2026, and what are its most significant new language and performance features?"}
+{"id": "web-node-lts", "prompt": "What is the current Node.js LTS version, and what notable changes did it introduce over the previous LTS line?"}
+{"id": "web-k8s-latest", "prompt": "What is the most recent stable Kubernetes release, and which features were promoted to stable or newly added in it?"}
+{"id": "web-postgres-latest", "prompt": "What is the latest major version of PostgreSQL, and what are its headline new features for developers and operators?"}
+{"id": "web-react-latest", "prompt": "What is the most recent major release of React, and how do its changes affect how developers write components?"}
+{"id": "web-typescript-latest", "prompt": "What is the latest release of TypeScript, and which new type-system capabilities did it add?"}
+{"id": "web-linux-kernel", "prompt": "What is the latest mainline Linux kernel version as of mid-2026, and what notable subsystems or features were added recently?"}
+{"id": "web-rust-async", "prompt": "Summarize the most significant developments in the Rust language and its async ecosystem during 2025-2026."}
+{"id": "web-nvidia-gpu", "prompt": "What are the current flagship consumer NVIDIA GPUs as of mid-2026, and how do they compare on specifications and price?"}
+{"id": "web-apple-iphone", "prompt": "What is the most recent flagship iPhone, and what are its standout hardware and software features?"}
+{"id": "web-macos-latest", "prompt": "What is the latest released version of macOS, and what are its headline features?"}
+{"id": "web-openai-pricing", "prompt": "What are the current API pricing tiers for OpenAI's main models as of 2026, and how do they differ by capability?"}
+{"id": "web-open-llms", "prompt": "Which open-weight large language models are currently considered benchmark-leading as of mid-2026, and what are their approximate parameter counts?"}
+{"id": "web-ai-releases-2026", "prompt": "What are the most significant frontier AI model releases of the first half of 2026, and what capabilities distinguish them?"}
+{"id": "web-fed-rates", "prompt": "What is the current stance of US Federal Reserve interest rate policy as of mid-2026, and what recent moves led to it?"}
+{"id": "web-stablecoin-reg", "prompt": "Summarize the most recent US regulatory actions affecting stablecoins during 2025-2026."}
+{"id": "web-eu-ai-act", "prompt": "What is the current enforcement timeline and status of the EU AI Act as of mid-2026?"}
+{"id": "web-cop-outcome", "prompt": "What were the main outcomes of the most recent UN COP climate conference?"}
+{"id": "web-fusion-energy", "prompt": "What are the most notable nuclear fusion energy milestones reported during 2025-2026?"}
+{"id": "web-artemis", "prompt": "What is the current timeline and status of NASA's Artemis program crewed lunar missions as of mid-2026?"}
+{"id": "web-jwst", "prompt": "What are some of the most significant James Webb Space Telescope discoveries reported recently?"}
+{"id": "web-solid-state-battery", "prompt": "Summarize recent (2025-2026) progress toward commercializing solid-state batteries for electric vehicles."}
+{"id": "web-solar-capacity", "prompt": "What are the latest reported figures for global installed solar PV capacity, and how fast is it growing?"}
+{"id": "web-ai-coding-tools", "prompt": "What is the current landscape of AI coding assistants as of 2026, and what capabilities differentiate the leading tools?"}
