@@ -1,0 +1,58 @@
+name: Bug report
+description: Something in openfusion isn't working as documented
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please **redact API keys, prompts, and response
+        bodies** from anything you paste below.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: A minimal config and request that triggers it (keys redacted).
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: openfusion version / commit
+      placeholder: "0.1.0 or git SHA"
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Which surface
+      options:
+        - Fusion (model=openfusion)
+        - Pass-through (other model)
+        - Streaming (SSE)
+        - Config / startup
+        - Benchmarks (bench/)
+        - Metrics / observability
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Python version & OS
+      placeholder: "3.12 on Ubuntu 24.04"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Paste logs/traceback. Redact secrets and prompt content.
+      render: shell

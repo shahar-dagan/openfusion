@@ -15,8 +15,8 @@ from openfusion.upstream import UpstreamClient
 
 JUDGE_SYSTEM_PROMPT = (
     "You are the synthesizer. Below are N independent answers to the same user request. "
-    "Identify points of consensus, contradictions, partial coverage, and blind spots. "
-    "Then write a single best answer grounded in that analysis. "
+    "Identify points of consensus, contradictions, partial coverage, unique insights, and "
+    "blind spots. Then write a single best answer grounded in that analysis. "
     "Honor the original user's output format and constraints exactly. "
     "Do not mention the panel or that multiple answers existed."
 )

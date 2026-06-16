@@ -17,19 +17,30 @@ for non-fusion models and tool calls. See [DESIGN.md](DESIGN.md) for architectur
 ## Quick start
 
 ```bash
-# Install from source
+# Install from source (not yet on PyPI)
 pip install -e .
 
-# Copy and configure
-cp openfusion.yaml.example openfusion.yaml
+# Pick a one-line recipe and set your key
+cp openfusion.preset.yaml.example openfusion.yaml   # contains: preset: budget
 export OPENROUTER_API_KEY=your-key-here
 
 # Run the server
 openfusion --host 0.0.0.0 --port 8000
 ```
 
-For credit-conscious local testing, start from `openfusion.dev.yaml.example`. It uses a smaller
-two-sample recipe, a lower-cost OpenRouter model, and strict token ceilings.
+A **preset** is the whole recipe: `preset: quality` (or `budget`) expands to a diverse OpenRouter
+panel plus a judge with web search/fetch enabled — the tool-enabled regime where fusion actually
+beats the best single member (see [Benchmarks](#benchmarks)). This mirrors OpenRouter Fusion's
+Quality/Budget switch. Anything you set explicitly in YAML overrides the preset.
+
+| Preset | Panel | Judge | Tools |
+|--------|-------|-------|-------|
+| `quality` | Claude Sonnet 4 · Gemini 3 Pro · DeepSeek V4 Pro | Claude Sonnet 4 | web search + fetch |
+| `budget` | GPT-4o-mini · DeepSeek V4 Pro · Kimi K2.6 | DeepSeek V4 Pro | web search + fetch |
+
+Prefer to spell out every model, or run the cheaper self-fusion recipe on a single model? Start
+from `openfusion.yaml.example` (full panel/judge config) or `openfusion.dev.yaml.example` (a smaller
+two-sample, low-cost, strict-ceiling recipe for local testing) instead.
 
 Use with the OpenAI Python SDK:
 
@@ -158,6 +169,13 @@ Python 3.11+ / FastAPI / httpx / uvicorn.
 The service serves a static project landing page from `GET /`. See
 [docs/LANDING_PAGE.md](docs/LANDING_PAGE.md) for the repo-local website decision, migration trigger,
 and security concerns to revisit before a hosted product accepts public traffic.
+
+## Contributing
+
+Contributions are welcome — openfusion is meant to be forked and tuned. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for dev setup and the PR checklist, and
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Please report security issues privately
+per [SECURITY.md](SECURITY.md) rather than as a public issue.
 
 ## License
 

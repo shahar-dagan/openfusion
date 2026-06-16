@@ -1,0 +1,31 @@
+name: Feature request
+description: Suggest a strategy, surface, or capability for openfusion
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / use case
+      description: What are you trying to do that openfusion can't do today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed approach
+      description: |
+        How might this work? If it touches module boundaries, note which module
+        owns the concern (see docs/ARCHITECTURE.md).
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Fit
+      options:
+        - label: This keeps openfusion a thin, forkable proxy (not a heavyweight framework).
+        - label: I'm willing to help implement / test it.

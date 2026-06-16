@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/shahar-dagan/openfusion/security/advisories/new
+    about: Please report security issues privately, not as a public issue. See SECURITY.md.
+  - name: Question / discussion
+    url: https://github.com/shahar-dagan/openfusion/discussions
+    about: Usage questions, recipe tuning, and benchmark discussion.

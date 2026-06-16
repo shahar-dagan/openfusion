@@ -13,10 +13,49 @@ from pydantic import BaseModel, Field, field_validator
 
 _ENV_PATTERN = re.compile(r"\$\{([A-Z0-9_]+)\}")
 
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+
 
 class Strategy(StrEnum):
     PANEL = "panel"
     SELF_FUSION = "self_fusion"
+
+
+class Preset(StrEnum):
+    """One-word panel recipes, mirroring OpenRouter Fusion's Quality/Budget switch.
+
+    A preset expands to a diverse OpenRouter panel + judge with web tools enabled
+    (the regime where bench/FINDINGS.md shows synthesis actually beats the best
+    single member). Anything the user sets explicitly in YAML wins over the preset.
+    """
+
+    QUALITY = "quality"
+    BUDGET = "budget"
+
+
+# Each preset is a diverse panel (different model families take different
+# search/fetch trajectories → complementary evidence for the judge to fuse) plus
+# a strong judge. Models match the repo's example configs and validated bench runs.
+_PRESETS: dict[Preset, dict[str, Any]] = {
+    Preset.QUALITY: {
+        "panel_models": [
+            "anthropic/claude-sonnet-4",
+            "google/gemini-3-pro",
+            "deepseek/deepseek-v4-pro",
+        ],
+        "judge_model": "anthropic/claude-sonnet-4",
+        "pass_through_model": "anthropic/claude-sonnet-4",
+    },
+    Preset.BUDGET: {
+        "panel_models": [
+            "openai/gpt-4o-mini",
+            "deepseek/deepseek-v4-pro",
+            "moonshotai/kimi-k2.6",
+        ],
+        "judge_model": "deepseek/deepseek-v4-pro",
+        "pass_through_model": "openai/gpt-4o-mini",
+    },
+}
 
 
 class Aggregator(StrEnum):
@@ -106,6 +145,7 @@ class PassThroughConfig(BaseModel):
 
 
 class OpenFusionConfig(BaseModel):
+    preset: Preset | None = None
     strategy: Strategy = Strategy.SELF_FUSION
     aggregator: Aggregator = Aggregator.JUDGE
     panel: list[PanelMember] = Field(default_factory=list)
@@ -129,6 +169,53 @@ class OpenFusionConfig(BaseModel):
             api_key=member.api_key,
             model=member.model,
         )
+
+
+def _apply_preset(raw: dict[str, Any]) -> dict[str, Any]:
+    """Fill panel/judge/tools defaults from a named preset.
+
+    Runs before env expansion so the injected ``${OPENROUTER_API_KEY}``
+    placeholders go through the same fail-fast expansion as hand-written YAML.
+    Every value the user set explicitly takes precedence over the preset.
+    """
+    preset_name = raw.get("preset")
+    if not preset_name:
+        return raw
+
+    spec = _PRESETS[Preset(preset_name)]
+    raw.setdefault("strategy", Strategy.PANEL.value)
+    raw.setdefault("aggregator", Aggregator.JUDGE.value)
+    # Tools on by default: FINDINGS.md shows fusion only beats the best single
+    # member when panelists do real research, so a preset should land there.
+    tools = dict(raw.get("tools") or {})
+    tools.setdefault("web_search", True)
+    tools.setdefault("web_fetch", True)
+    raw["tools"] = tools
+
+    api_key = "${OPENROUTER_API_KEY}"
+    if not raw.get("panel"):
+        raw["panel"] = [
+            {
+                "base_url": OPENROUTER_BASE_URL,
+                "api_key": api_key,
+                "model": model,
+                "label": f"panel-{index}",
+            }
+            for index, model in enumerate(spec["panel_models"])
+        ]
+    if not raw.get("judge"):
+        raw["judge"] = {
+            "base_url": OPENROUTER_BASE_URL,
+            "api_key": api_key,
+            "model": spec["judge_model"],
+        }
+    if not raw.get("pass_through"):
+        raw["pass_through"] = {
+            "base_url": OPENROUTER_BASE_URL,
+            "api_key": api_key,
+            "model": spec["pass_through_model"],
+        }
+    return raw
 
 
 def _expand_env(value: Any) -> Any:
@@ -171,6 +258,7 @@ def load_config(path: str | Path | None = None) -> OpenFusionConfig:
     with config_path.open(encoding="utf-8") as handle:
         raw: dict[str, Any] = yaml.safe_load(handle) or {}
 
+    raw = _apply_preset(raw)
     raw["gateway"] = {"api_keys": _load_gateway_keys(raw)}
     expanded = _expand_env(raw)
     return OpenFusionConfig.model_validate(expanded)
