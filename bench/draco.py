@@ -146,14 +146,19 @@ def _probe(limit: int) -> None:
     print(f"answer type: {type(parsed).__name__}")
     if isinstance(parsed, dict):
         for k, v in parsed.items():
-            kind = f"<{type(v).__name__} len={len(v)}>" if isinstance(v, (list, dict)) else repr(v)[:80]
+            if isinstance(v, (list, dict)):
+                kind = f"<{type(v).__name__} len={len(v)}>"
+            else:
+                kind = repr(v)[:80]
             print(f"  key {k!r}: {kind}")
             if isinstance(v, list) and v and isinstance(v[0], dict):
                 print(f"    [0] keys: {list(v[0].keys())}")
                 print(f"    [0] dump: {json.dumps(v[0])[:600]}")
     elif isinstance(parsed, list) and parsed:
-        print(f"  [0] keys: {list(parsed[0].keys()) if isinstance(parsed[0], dict) else type(parsed[0])}")
-        print(f"  [0] dump: {json.dumps(parsed[0])[:600]}")
+        first = parsed[0]
+        keys = list(first.keys()) if isinstance(first, dict) else type(first).__name__
+        print(f"  [0] keys: {keys}")
+        print(f"  [0] dump: {json.dumps(first)[:600]}")
     print("=== end raw ===\n")
 
     for row in rows[:limit]:
