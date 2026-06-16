@@ -1,0 +1,36 @@
+# The one-liner config: a named preset is the whole recipe.
+#
+# `preset: quality` (or `budget`) expands to a diverse OpenRouter panel + judge
+# with web search/fetch enabled — the tool-enabled regime where bench/FINDINGS.md
+# shows synthesis actually beats the best single panel member. This mirrors
+# OpenRouter Fusion's Quality/Budget switch.
+#
+# Copy to openfusion.yaml and set OPENROUTER_API_KEY. That's it.
+
+preset: budget   # or: quality
+
+# Everything below is OPTIONAL — anything you set here overrides the preset.
+
+# cost_controls:
+#   pass_through_max_tokens: 1024
+#   panel_max_tokens: 1024
+#   judge_max_tokens: 2048
+
+# Override the panel/judge entirely (preset is ignored for whatever you set):
+# panel:
+#   - base_url: https://openrouter.ai/api/v1
+#     api_key: ${OPENROUTER_API_KEY}
+#     model: anthropic/claude-sonnet-4
+#     label: panel
+# judge:
+#   base_url: https://openrouter.ai/api/v1
+#   api_key: ${OPENROUTER_API_KEY}
+#   model: anthropic/claude-sonnet-4
+
+# Turn web tools off if you only want parametric answers (cheaper, but on
+# tool-free tasks fusion does not beat solo — see bench/FINDINGS.md):
+# tools:
+#   web_search: false
+
+gateway:
+  api_keys: []
