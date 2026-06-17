@@ -57,13 +57,14 @@ change it. Pipe for one-shots: `echo "…" | openfusion`.
 ### Web playground
 
 ```bash
-openfusion web                                  # then open http://localhost:8000
+openfusion web                                  # opens the playground in your browser
 # …or: docker run -p 8000:8000 ghcr.io/shahar-dagan/openfusion
 ```
 
-Opens the playground, where you paste your key (kept only in server memory) and fuse. With nothing
-configured it boots the **Budget** preset (a diverse panel + judge with web search) so the first run
-lands where fusion actually wins.
+`openfusion web` pops the playground open at `http://localhost:8000` once the server is ready (pass
+`--no-open`, or it's skipped automatically in non-interactive/headless/Docker contexts). Paste your
+key (kept only in server memory) and fuse. With nothing configured it boots the **Budget** preset (a
+diverse panel + judge with web search) so the first run lands where fusion actually wins.
 
 ### Install the command everywhere (no venv to activate)
 

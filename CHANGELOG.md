@@ -20,7 +20,8 @@ stronger answer — usable as a CLI chat, a web playground, or a drop-in API.
   panel: a banner, a spinner with live per-member panel progress, Markdown +
   syntax-highlighted answers, conversation history, and slash commands
   (`/preset`, `/tokens`, `/models`, `/clear`, `/help`).
-- **`openfusion web`** (alias `serve`) starts the server + web playground.
+- **`openfusion web`** (alias `serve`) starts the server + web playground, and opens the playground
+  in your browser when run interactively (`--no-open` to disable; auto-skipped in Docker/CI/headless).
 - **`openfusion ask "…"`** runs a one-shot fusion to stdout; `echo … | openfusion`
   pipes a one-shot too.
 - **`openfusion setup`** is a guided first-run wizard.

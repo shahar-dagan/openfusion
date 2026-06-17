@@ -406,6 +406,9 @@ def run_server(argv: list[str]) -> None:
     parser.add_argument("--port", type=int, default=int(os.environ.get("OPENFUSION_PORT", "8000")))
     parser.add_argument("--config", default=os.environ.get("OPENFUSION_CONFIG"))
     parser.add_argument("--reload", action="store_true")
+    parser.add_argument(
+        "--no-open", action="store_true", help="Don't open the playground in a browser"
+    )
     args = parser.parse_args(argv)
 
     # Ensure the uvicorn factory (which re-loads config in the worker) honors
@@ -421,6 +424,29 @@ def run_server(argv: list[str]) -> None:
 
     print(_summarize_config(config, args.host, args.port), file=sys.stderr)
     os.environ["OPENFUSION_LOADED_CONFIG"] = "1"
+
+    # Pop the playground open once the server is up — but only for an interactive
+    # local terminal (skip Docker/CI/headless and `--no-open`/OPENFUSION_NO_OPEN).
+    if (
+        not args.no_open
+        and not os.environ.get("OPENFUSION_NO_OPEN")
+        and sys.stdout.isatty()
+        and not args.reload
+    ):
+        ui_host = "localhost" if args.host in ("0.0.0.0", "127.0.0.1", "") else args.host
+        url = f"http://{ui_host}:{args.port}/playground/"
+
+        def _open() -> None:
+            import time
+            import webbrowser
+
+            time.sleep(1.2)
+            with contextlib.suppress(Exception):
+                webbrowser.open(url)
+
+        import threading
+
+        threading.Thread(target=_open, daemon=True).start()
 
     uvicorn.run(
         "openfusion.server:create_app",
