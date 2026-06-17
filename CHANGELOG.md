@@ -18,6 +18,10 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The judge prompt now asks for concise, focused answers, and the zero-config quick start caps
   responses at ~1024 tokens, so out-of-box answers aren't never-ending.
 
+### Docs
+- Document installing the CLI as a tool (`uv tool install .` / `pipx install .`) so `openfusion` is
+  always on `PATH` without activating a venv, plus a Troubleshooting section and a `Makefile`.
+
 ### Added (continued)
 - **Formatted answers** — the playground renders the response as Markdown (headings, lists, tables,
   code blocks via GitHub-flavored Markdown) with a copy button, instead of plain pre-wrapped text.

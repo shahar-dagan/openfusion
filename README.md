@@ -54,7 +54,21 @@ OpenRouter API key (held only in the server's memory) and start fusing. With not
 openfusion boots the **Budget** preset (a diverse panel + judge with web search) so the first run
 lands where fusion actually wins.
 
-Developing on a clone? `pip install -e .` then `openfusion`.
+Cloned the repo and want the `openfusion` command available everywhere (no venv to activate)?
+Install it as a tool:
+
+```bash
+uv tool install .     # or: pipx install . && pipx ensurepath
+```
+
+For active development on the code, use an editable install inside a venv — but then the command
+only works while that venv is activated:
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -e .
+openfusion
+```
 
 Prefer a guided setup? `openfusion setup` walks you through entering your key and picking a recipe,
 then writes an `openfusion.yaml` for you.
@@ -326,6 +340,19 @@ npm install
 npm run dev      # dev server (proxy /v1 to a running openfusion on :8000)
 npm run build    # writes built assets into openfusion/static/playground/ (commit them)
 ```
+
+## Troubleshooting
+
+**`openfusion: command not found`** — the console script lives in the environment you installed it
+into. Either install it as a tool so it's always on `PATH` (`uv tool install .` or `pipx install .`),
+or activate the venv you used (`source .venv/bin/activate`). A bare `pip install -e .` does not put
+`openfusion` on your global `PATH`.
+
+**Playground says "Couldn't reach the server"** — open the page at the URL the running server prints
+(default `http://localhost:8000`), not a dev-server port or a standalone file.
+
+**`No upstream API key`** — set `OPENROUTER_API_KEY`, run `openfusion setup`, or paste your key into
+the playground.
 
 ## Stack
 
