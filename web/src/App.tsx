@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   ArrowUp,
   Check,
+  ChevronDown,
   Copy,
   Github,
   KeyRound,
@@ -279,19 +280,13 @@ export default function App() {
               </TabsList>
             </Tabs>
 
-            <datalist id="model-list">
-              {modelSuggestions.map((m) => (
-                <option key={m} value={m} />
-              ))}
-            </datalist>
-
             <div className="flex flex-wrap items-center gap-2">
               {panel.map((model, i) => (
                 <ModelChip
                   key={i}
                   value={model}
                   editable={allowOverrides}
-                  listId="model-list"
+                  options={modelSuggestions}
                   onChange={(v) => setPanel((p) => p.map((m, j) => (j === i ? v : m)))}
                   onRemove={() => {
                     setPanel((p) => p.filter((_, j) => j !== i));
@@ -318,7 +313,7 @@ export default function App() {
               <ModelChip
                 value={judge}
                 editable={allowOverrides}
-                listId="model-list"
+                options={modelSuggestions}
                 onChange={setJudge}
               />
             </div>
@@ -586,31 +581,83 @@ function ModelChip({
   editable,
   onChange,
   onRemove,
-  listId,
+  options = [],
 }: {
   value: string;
   editable: boolean;
   onChange: (v: string) => void;
   onRemove?: () => void;
-  listId?: string;
+  options?: string[];
 }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  if (!editable) {
+    return (
+      <span className="inline-flex items-center rounded-lg border bg-card px-2.5 py-1.5 text-sm">
+        {value || "—"}
+      </span>
+    );
+  }
+
+  const q = value.toLowerCase();
+  const matches = options.filter((o) => o !== value && o.toLowerCase().includes(q));
+
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-lg border bg-card px-2.5 py-1.5 text-sm">
-      {editable ? (
-        <input
-          className="min-w-[140px] bg-transparent outline-none"
-          value={value}
-          placeholder="provider/model"
-          list={listId}
-          onChange={(e) => onChange(e.target.value)}
-        />
-      ) : (
-        <span>{value || "—"}</span>
+    <span
+      ref={ref}
+      className="relative inline-flex items-center gap-1 rounded-lg border bg-card py-1.5 pl-2.5 pr-1.5 text-sm"
+    >
+      <input
+        className="min-w-[150px] bg-transparent outline-none"
+        value={value}
+        placeholder="provider/model"
+        onChange={(e) => {
+          onChange(e.target.value);
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
+      />
+      {options.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className="text-muted-foreground hover:text-foreground"
+          aria-label="Choose a model"
+        >
+          <ChevronDown className="h-3.5 w-3.5" />
+        </button>
       )}
-      {editable && onRemove && (
+      {onRemove && (
         <button onClick={onRemove} className="text-muted-foreground hover:text-destructive">
           <X className="h-3.5 w-3.5" />
         </button>
+      )}
+      {open && matches.length > 0 && (
+        <div className="absolute left-0 top-full z-20 mt-1 max-h-60 w-72 overflow-auto rounded-md border bg-card p-1 shadow-md">
+          {matches.map((o) => (
+            <button
+              key={o}
+              type="button"
+              onClick={() => {
+                onChange(o);
+                setOpen(false);
+              }}
+              className="block w-full truncate rounded px-2 py-1.5 text-left hover:bg-accent"
+            >
+              {o}
+            </button>
+          ))}
+        </div>
       )}
     </span>
   );
