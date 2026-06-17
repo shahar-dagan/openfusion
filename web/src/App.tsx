@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   ArrowUp,
   Check,
+  Copy,
   Github,
   KeyRound,
   Loader2,
@@ -25,6 +26,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { Markdown } from "@/components/markdown";
 import { type ActiveConfig, getConfig, setApiKey, streamFusion } from "@/lib/api";
 
 type Preset = "quality" | "budget" | "custom";
@@ -290,9 +292,22 @@ export default function App() {
             </div>
             <Card>
               <CardContent>
-                <div className="whitespace-pre-wrap leading-relaxed">
-                  {answer || (busy ? "" : "—")}
-                </div>
+                {answer ? (
+                  <div className="relative">
+                    <CopyButton text={answer} />
+                    <Markdown>{answer}</Markdown>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    {busy ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" /> Waiting for the panel…
+                      </>
+                    ) : (
+                      "—"
+                    )}
+                  </div>
+                )}
               </CardContent>
             </Card>
             {analysis && <AnalysisCard analysis={analysis} />}
@@ -393,6 +408,24 @@ function SettingsDialog({
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      onClick={() => {
+        navigator.clipboard?.writeText(text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      }}
+      className="absolute right-0 top-0 flex items-center gap-1 rounded-md border bg-card px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+      aria-label="Copy answer"
+    >
+      {copied ? <Check className="h-3.5 w-3.5 text-primary" /> : <Copy className="h-3.5 w-3.5" />}
+      {copied ? "Copied" : "Copy"}
+    </button>
   );
 }
 
