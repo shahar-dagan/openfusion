@@ -13,11 +13,22 @@ from enum import StrEnum
 from typing import Any
 
 from openfusion.config import RouterConfig, RouterMode
+from openfusion.cost import RequestPhase
+from openfusion.upstream import UpstreamClient
 
 
 class RouteDecision(StrEnum):
     FUSE = "fuse"  # run the panel + aggregator
     SOLO = "solo"  # answer with a single pass-through call
+
+
+_CLASSIFY_PROMPT = (
+    "Decide whether the user's request needs a panel of multiple expert models "
+    "(answer FUSE) or can be answered well by a single model (answer SOLO). "
+    "FUSE for open-ended research, analysis, design, or high-stakes questions; "
+    "SOLO for simple, factual, or trivial ones. Reply with exactly one word: "
+    "FUSE or SOLO."
+)
 
 
 def _user_text(body: dict[str, Any]) -> str:
@@ -57,3 +68,44 @@ def route(body: dict[str, Any], config: RouterConfig) -> RouteDecision:
     if len(text) >= config.min_chars:
         return RouteDecision.FUSE
     return RouteDecision.SOLO
+
+
+async def route_async(
+    body: dict[str, Any],
+    config: RouterConfig,
+    client: UpstreamClient,
+) -> RouteDecision:
+    """Async router that supports the model classifier; else delegates to route().
+
+    On any classifier error the decision falls back to the heuristic, so routing
+    never fails a request.
+    """
+    if config.mode != RouterMode.MODEL or config.classifier is None:
+        return route(body, config)
+
+    classifier = config.classifier.model_copy(update={"label": "router"})
+    request = {
+        "messages": [
+            {"role": "system", "content": _CLASSIFY_PROMPT},
+            {"role": "user", "content": _user_text(body)[:4000]},
+        ],
+        "max_tokens": config.classifier_max_tokens,
+        "temperature": 0,
+    }
+    try:
+        payload = await client.chat_completion(
+            classifier, request, stream=False, phase=RequestPhase.PASS_THROUGH
+        )
+    except Exception:  # noqa: BLE001 - never fail routing on a classifier error
+        return route(body, config)
+
+    if not isinstance(payload, dict):
+        return route(body, config)
+    choices = payload.get("choices") or []
+    text = ((choices[0].get("message") or {}).get("content") if choices else "") or ""
+    upper = text.upper()
+    if "SOLO" in upper and "FUSE" not in upper:
+        return RouteDecision.SOLO
+    if "FUSE" in upper:
+        return RouteDecision.FUSE
+    return route(body, config)

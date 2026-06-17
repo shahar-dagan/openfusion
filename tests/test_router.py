@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import httpx
+import pytest
 
-from openfusion.config import OpenFusionConfig, RouterConfig, RouterMode
-from openfusion.router import RouteDecision, route
+from openfusion.config import OpenFusionConfig, PanelMember, RouterConfig, RouterMode
+from openfusion.router import RouteDecision, route, route_async
 from openfusion.server import _requires_pass_through_tools, create_app
 from openfusion.tools import WEB_FETCH_TYPE, WEB_SEARCH_TYPE
+from openfusion.upstream import UpstreamClient
 
 
 def _body(text: str) -> dict:
@@ -61,6 +63,51 @@ def test_mixed_tools_force_pass_through() -> None:
 
 def test_tool_role_message_forces_pass_through() -> None:
     assert _requires_pass_through_tools({"messages": [{"role": "tool", "content": "x"}]}) is True
+
+
+def _model_router() -> RouterConfig:
+    return RouterConfig(
+        enabled=True,
+        mode=RouterMode.MODEL,
+        classifier=PanelMember(base_url="https://mock.upstream/v1", api_key="k", model="cls"),
+    )
+
+
+@pytest.mark.asyncio
+async def test_route_async_model_mode_respects_classifier(mock_router) -> None:
+    mock_router.post("https://mock.upstream/v1/chat/completions").mock(
+        return_value=httpx.Response(
+            200, json={"choices": [{"message": {"role": "assistant", "content": "SOLO"}}]}
+        )
+    )
+    client = UpstreamClient()
+    decision = await route_async(_body("anything"), _model_router(), client)
+    assert decision == RouteDecision.SOLO
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_route_async_falls_back_to_heuristic_on_error(mock_router) -> None:
+    mock_router.post("https://mock.upstream/v1/chat/completions").mock(
+        return_value=httpx.Response(500, json={"error": {"message": "down"}})
+    )
+    client = UpstreamClient()
+    # Classifier errored, so the heuristic decides: a keyword prompt fuses.
+    decision = await route_async(_body("compare these options"), _model_router(), client)
+    assert decision == RouteDecision.FUSE
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_route_async_heuristic_mode_makes_no_call(mock_router) -> None:
+    route_mock = mock_router.post("https://mock.upstream/v1/chat/completions").mock(
+        return_value=httpx.Response(200, json={"choices": []})
+    )
+    client = UpstreamClient()
+    decision = await route_async(_body("hi"), RouterConfig(enabled=True), client)
+    assert decision == RouteDecision.SOLO
+    assert not route_mock.called
+    await client.aclose()
 
 
 async def test_router_solo_answers_with_single_call(

@@ -11,9 +11,12 @@ openfusion is a thin FastAPI proxy. Each module owns one concern so strategies, 
 | `server.py` | HTTP routes, auth gate, routing (`openfusion` vs pass-through), cancellation orchestration | SSE framing, judge prompt logic |
 | `config.py` | Typed config from YAML + env | HTTP or upstream calls |
 | `cost.py` | Token ceilings and request cost policy | Provider-specific pricing math |
-| `router.py` | Per-prompt fuse-vs-solo decision from prompt-shape signals | HTTP or upstream calls |
+| `router.py` | Per-prompt fuse-vs-solo decision (heuristic or model classifier) | SSE framing |
+| `limits.py` | Concurrency cap + per-key rate limiting | HTTP, prompt/secret handling |
+| `cache.py` | Prompt-cache breakpoint marking for the shared prefix | HTTP or upstream calls |
 | `upstream.py` | Shared httpx client for OpenAI-compatible APIs | Business logic about panels or judges |
 | `panel.py` | Parallel fan-out, timeouts, degrade, 429 retry, debate rounds | SSE framing |
+| `synthesize.py` / `vote.py` / `ranked.py` | Aggregators: judge synthesis, majority vote, judge pick | SSE framing |
 | `synthesize.py` | Judge prompt assembly, yield text deltas only | SSE framing |
 | `stream.py` | All OpenAI chunk/SSE framing, progress events, terminal usage | Judge prompt content decisions |
 | `metrics.py` | In-process counters/latency/token+cost registry, Prometheus text rendering | HTTP, upstream calls, prompt/secret handling |

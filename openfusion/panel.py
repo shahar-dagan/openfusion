@@ -8,6 +8,7 @@ import random
 from dataclasses import dataclass, field
 from typing import Any
 
+from openfusion.cache import mark_cache_breakpoint
 from openfusion.config import OpenFusionConfig, PanelMember, Strategy
 from openfusion.cost import CostPolicy, RequestPhase
 from openfusion.errors import UpstreamError
@@ -135,6 +136,10 @@ async def _call_member(
     # Give panel members server-side web search when configured, so they can
     # gather complementary evidence for the judge to synthesize.
     body = apply_web_tools(body, config.tools)
+
+    # Mark the shared prefix so self-fusion's N samples reuse a cached prompt.
+    if config.cache.enabled:
+        body = mark_cache_breakpoint(body)
 
     deadline = asyncio.get_running_loop().time() + timeout
     attempt = 0

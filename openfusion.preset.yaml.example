@@ -43,5 +43,22 @@ preset: budget   # or: quality
 # debate:
 #   rounds: 1
 
+# Cheaper aggregation: 'ranked' = one judge call picks the best answer;
+# 'vote' = majority vote (best for verifiable short-answer tasks).
+# aggregator: ranked
+
+# Surface the judge's structured analysis as a separate SSE `analysis` event.
+# analysis:
+#   emit: true
+
+# Reuse a cached prompt prefix across self-fusion samples (provider-dependent).
+# cache:
+#   enabled: true
+
+# Bound load and spend for public deployments (0 = unlimited).
+# limits:
+#   max_in_flight: 64
+#   rate_limit_per_minute: 60
+
 gateway:
   api_keys: []
