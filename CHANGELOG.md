@@ -7,6 +7,8 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Formatted answers** — the playground renders the response as Markdown (headings, lists, tables,
+  code blocks via GitHub-flavored Markdown) with a copy button, instead of plain pre-wrapped text.
 - **`openfusion setup`** — an interactive first-run wizard that prompts for your OpenRouter key and
   a recipe, then writes a private `openfusion.yaml`. The startup banner now nudges you to the
   playground (or `openfusion setup`) when no key is configured.
