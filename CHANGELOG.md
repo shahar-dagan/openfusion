@@ -7,6 +7,9 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Cost preview** — `POST /v1/estimate` returns the number of calls, input-token estimate, output
+  cap, and a `$` figure (from cached OpenRouter per-model pricing; best-effort, falls back to tokens).
+  The playground shows `≈ N calls · ~$X` next to the Fuse button as you type.
 - **Response cache** (`response_cache.enabled`) — identical fused requests (same prompt + recipe)
   are served instantly from an in-process TTL/LRU cache; cached responses are flagged `cached: true`
   and work for both streaming and non-streaming.

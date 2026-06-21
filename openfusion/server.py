@@ -23,6 +23,7 @@ from starlette.background import BackgroundTask
 
 from openfusion.config import (
     _PRESETS,
+    OPENROUTER_BASE_URL,
     Aggregator,
     LimitsConfig,
     OpenFusionConfig,
@@ -39,9 +40,11 @@ from openfusion.errors import (
     OpenFusionError,
     UpstreamError,
 )
+from openfusion.estimate import build_estimate
 from openfusion.limits import RequestLimiter
 from openfusion.metrics import METRICS
 from openfusion.overrides import apply_overrides, fill_missing_keys, is_missing_api_key
+from openfusion.pricing import get_prices
 from openfusion.responsecache import ResponseCache, cache_key
 from openfusion.router import RouteDecision, route_async, select_model
 from openfusion.stream import (
@@ -226,6 +229,23 @@ def create_app(
     @app.get("/v1/config")
     async def active_config(cfg: OpenFusionConfig = Depends(get_config)) -> dict[str, Any]:
         return _active_config_payload(cfg, app.state.runtime_api_key)
+
+    @app.post("/v1/estimate")
+    async def estimate(
+        request: Request, cfg: OpenFusionConfig = Depends(get_config)
+    ) -> dict[str, Any]:
+        try:
+            body = await request.json()
+        except json.JSONDecodeError as exc:
+            raise InvalidRequestError(f"Invalid JSON: {exc}") from exc
+        if not isinstance(body, dict):
+            raise InvalidRequestError("Request body must be a JSON object")
+        override = body.pop("openfusion", None)
+        if isinstance(override, dict) and cfg.allow_request_overrides:
+            cfg = apply_overrides(cfg, override)
+        base = cfg.panel[0].base_url if cfg.panel else OPENROUTER_BASE_URL
+        prices = await get_prices(base)
+        return build_estimate(body, cfg, prices)
 
     @app.post("/v1/runtime/api-key")
     async def set_runtime_api_key(
