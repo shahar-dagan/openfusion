@@ -25,6 +25,24 @@ async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
   }
 }
 
+export interface Estimate {
+  calls: number;
+  models: string[];
+  input_tokens: number;
+  max_output_tokens: number;
+  cost_usd: number | null;
+}
+
+export async function getEstimate(payload: any): Promise<Estimate> {
+  const res = await apiFetch("/v1/estimate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error("estimate " + res.status);
+  return res.json();
+}
+
 export async function getConfig(): Promise<ActiveConfig> {
   const res = await apiFetch("/v1/config");
   if (!res.ok) throw new Error("Could not load config (" + res.status + ")");

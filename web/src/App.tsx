@@ -30,7 +30,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Markdown } from "@/components/markdown";
 import {
   type ActiveConfig,
+  type Estimate,
   getConfig,
+  getEstimate,
   type PanelAnswer,
   type ProgressEvent,
   setApiKey,
@@ -75,6 +77,7 @@ export default function App() {
   const [analysis, setAnalysis] = useState<Record<string, unknown> | null>(null);
   const [usage, setUsage] = useState<any>(null);
   const [hasRun, setHasRun] = useState(false);
+  const [estimate, setEstimate] = useState<Estimate | null>(null);
   const answerRef = useRef("");
 
   const allowOverrides = config?.allow_request_overrides ?? false;
@@ -102,6 +105,29 @@ export default function App() {
       })
       .catch((err) => setStatus(err.message));
   }, []);
+
+  // Debounced pre-run cost estimate.
+  useEffect(() => {
+    if (!prompt.trim() || !config) {
+      setEstimate(null);
+      return;
+    }
+    const payload: any = { messages: [{ role: "user", content: prompt }] };
+    if (allowOverrides) {
+      payload.openfusion = {
+        panel: panel.filter(Boolean),
+        judge,
+        tools: { web_search: webSearch },
+        max_tokens: maxTokens,
+      };
+    }
+    const id = setTimeout(() => {
+      getEstimate(payload)
+        .then(setEstimate)
+        .catch(() => setEstimate(null));
+    }, 500);
+    return () => clearTimeout(id);
+  }, [prompt, panel, judge, webSearch, maxTokens, allowOverrides, config]);
 
   function applyPreset(name: Preset) {
     setPreset(name);
@@ -340,6 +366,14 @@ export default function App() {
                 Web search
               </label>
               <div className="flex-1" />
+              {estimate && (
+                <span className="text-xs text-muted-foreground" title="Estimated pre-run cost">
+                  ≈ {estimate.calls} call{estimate.calls === 1 ? "" : "s"}
+                  {estimate.cost_usd != null
+                    ? ` · ~$${estimate.cost_usd.toFixed(estimate.cost_usd < 0.01 ? 4 : 2)}`
+                    : ` · ~${estimate.input_tokens} in-tok`}
+                </span>
+              )}
               <Button onClick={run} disabled={busy || !prompt.trim()}>
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
                 Fuse

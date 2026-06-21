@@ -14,14 +14,14 @@ Directional, not a promise. Issues and PRs welcome on any of these.
   (multi-tenant) config; see `docs/EMBEDDING.md`. Foundation for a hosted app.
 - **Response cache** (`response_cache.enabled`) — identical fused requests served
   from memory; `create_app(usage_callback=...)` meters usage per request.
+- **Cost preview** — `POST /v1/estimate` (calls, tokens, and `$` from OpenRouter
+  pricing); shown in the playground as you type.
 
 ## Next
-- **Cost preview** — estimate spend before running (token estimate now; live
-  per-model pricing later).
-- **Cost preview + response cache** — estimate spend before running; dedupe
-  identical prompts.
 - **Smarter routing** — embedding/classifier-based model selection beyond the
   current heuristic; learn from outcomes.
+- **Live `$` pricing in the estimate for non-OpenRouter providers** and a
+  CLI cost preview (`openfusion ask --estimate`).
 
 ## Benchmarks
 - Scale the DRACO eval to the full task set with a stronger grader for a
