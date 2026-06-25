@@ -103,7 +103,9 @@ async def test_concurrent_pricing_calls_only_fetch_once(mock_router) -> None:
         call_count += 1
         return httpx.Response(
             200,
-            json={"data": [{"id": "m1", "pricing": {"prompt": "0.000001", "completion": "0.000002"}}]},
+            json={
+                "data": [{"id": "m1", "pricing": {"prompt": "0.000001", "completion": "0.000002"}}]
+            },
         )
 
     mock_router.get("https://mock.upstream/v1/models").mock(side_effect=_handler)

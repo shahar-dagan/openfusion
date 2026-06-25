@@ -16,7 +16,12 @@ from openfusion.config import (
     Strategy,
     TimeoutsConfig,
 )
-from openfusion.stream import capture_stream, ranked_and_stream, synthesize_and_stream, vote_and_stream
+from openfusion.stream import (
+    capture_stream,
+    ranked_and_stream,
+    synthesize_and_stream,
+    vote_and_stream,
+)
 from openfusion.upstream import UpstreamClient
 
 
