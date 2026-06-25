@@ -200,3 +200,51 @@ async def test_ranked_and_stream_sends_error_chunk_on_panel_failure(mock_router)
         if "error" in json.loads(data)
     ]
     assert error_events, "expected an SSE error chunk"
+
+
+@pytest.mark.asyncio
+async def test_vote_and_stream_usage_event_includes_total(mock_router) -> None:
+    """vote_and_stream must emit a usage SSE event with a 'total' key.
+
+    capture_stream reads `obj.get("total") or obj` from usage events; without
+    a 'total' key the full structured payload (with 'panel'/'panel_total'/'judge'
+    keys) would be passed to on_complete instead of the flat token counts —
+    inconsistent with what buffer_vote returns for non-streaming callers.
+    """
+    mock_router.post("https://mock.upstream/v1/chat/completions").mock(
+        side_effect=[
+            httpx.Response(
+                200,
+                json={
+                    "choices": [{"message": {"role": "assistant", "content": "answer-a"}}],
+                    "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+                },
+            ),
+            httpx.Response(
+                200,
+                json={
+                    "choices": [{"message": {"role": "assistant", "content": "answer-a"}}],
+                    "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+                },
+            ),
+        ]
+    )
+    config = _panel_config(Aggregator.VOTE)
+    client = UpstreamClient()
+    chunks = [line async for line in vote_and_stream(
+        {"messages": [{"role": "user", "content": "hi"}]}, config, client
+    )]
+    await client.aclose()
+
+    events = _parse_sse("".join(chunks))
+    usage_events = [
+        json.loads(data) for event, data in events if event == "usage"
+    ]
+    assert usage_events, "expected a usage SSE event"
+    assert "total" in usage_events[0], (
+        "usage event must have 'total' key for capture_stream compatibility"
+    )
+    total = usage_events[0]["total"]
+    assert total["prompt_tokens"] == 20
+    assert total["completion_tokens"] == 10
+    assert total["total_tokens"] == 30

@@ -392,17 +392,21 @@ def _build_usage_payload(
         "panel_total": panel_usage,
         "judge": judge_usage,
     }
-    if panel_usage and judge_usage:
-        total = {
-            "prompt_tokens": panel_usage.get("prompt_tokens", 0)
-            + judge_usage.get("prompt_tokens", 0),
-            "completion_tokens": panel_usage.get("completion_tokens", 0)
-            + judge_usage.get("completion_tokens", 0),
-            "total_tokens": panel_usage.get("total_tokens", 0) + judge_usage.get("total_tokens", 0),
-        }
-        if "cost" in panel_usage or "cost" in judge_usage:
-            total["cost"] = panel_usage.get("cost", 0.0) + judge_usage.get("cost", 0.0)
-        payload["total"] = total
+    # Always include "total" so capture_stream's `obj.get("total") or obj` fallback
+    # never falls back to the raw structured payload. Without this, vote/ranked
+    # streams (no judge) would pass the full {panel, panel_total, judge} dict to
+    # on_complete, while non-streaming buffer functions pass panel.usage_total
+    # directly — inconsistent shapes for usage_callback consumers.
+    p = panel_usage or {}
+    j = judge_usage or {}
+    total: dict[str, Any] = {
+        "prompt_tokens": p.get("prompt_tokens", 0) + j.get("prompt_tokens", 0),
+        "completion_tokens": p.get("completion_tokens", 0) + j.get("completion_tokens", 0),
+        "total_tokens": p.get("total_tokens", 0) + j.get("total_tokens", 0),
+    }
+    if "cost" in p or "cost" in j:
+        total["cost"] = p.get("cost", 0.0) + j.get("cost", 0.0)
+    payload["total"] = total
     return payload
 
 
