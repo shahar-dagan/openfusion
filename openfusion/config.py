@@ -6,10 +6,10 @@ import os
 import re
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 _ENV_PATTERN = re.compile(r"\$\{([A-Z0-9_]+)\}")
 
@@ -76,16 +76,30 @@ class Aggregator(StrEnum):
     RANKED = "ranked"  # the judge picks the single best answer (no synthesis)
 
 
+def _infer_provider(base_url: str) -> Literal["openai", "anthropic"]:
+    """Infer the provider from the base URL when not explicitly set."""
+    if "anthropic.com" in base_url:
+        return "anthropic"
+    return "openai"
+
+
 class PanelMember(BaseModel):
     base_url: str
     api_key: str
     model: str
     label: str | None = None
+    provider: Literal["openai", "anthropic"] | None = None
 
     @field_validator("base_url")
     @classmethod
     def strip_trailing_slash(cls, value: str) -> str:
         return value.rstrip("/")
+
+    @model_validator(mode="after")
+    def infer_provider(self) -> PanelMember:
+        if self.provider is None:
+            self.provider = _infer_provider(self.base_url)
+        return self
 
 
 class JudgeConfig(BaseModel):
@@ -93,11 +107,18 @@ class JudgeConfig(BaseModel):
     api_key: str
     model: str
     max_panel_tokens: int = Field(default=120_000, ge=1)
+    provider: Literal["openai", "anthropic"] | None = None
 
     @field_validator("base_url")
     @classmethod
     def strip_trailing_slash(cls, value: str) -> str:
         return value.rstrip("/")
+
+    @model_validator(mode="after")
+    def infer_provider(self) -> JudgeConfig:
+        if self.provider is None:
+            self.provider = _infer_provider(self.base_url)
+        return self
 
 
 class SelfFusionConfig(BaseModel):
