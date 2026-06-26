@@ -317,7 +317,14 @@ def create_app(
             )
             routed: PassThroughConfig | None = None
             if wants_fusion and cfg.router.enabled:
-                decision = await route_async(body, cfg.router, client)
+                # Tools are active when config enables web search or the request
+                # carries server-executable tools (it reached here, so they are).
+                tools_active = cfg.tools.web_search or tools_are_server_executable(
+                    body.get("tools")
+                )
+                decision = await route_async(
+                    body, cfg.router, client, tools_active=tools_active
+                )
                 if decision == RouteDecision.SOLO:
                     wants_fusion = False
                     routed = _routed_pass_through(cfg, select_model(body, cfg.router))

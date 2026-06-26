@@ -95,11 +95,21 @@ def select_model(body: dict[str, Any], config: RouterConfig) -> RouteModel | Non
     return config.route_models[0]
 
 
-def route(body: dict[str, Any], config: RouterConfig) -> RouteDecision:
-    """Return whether to FUSE or answer SOLO for this request."""
+def route(
+    body: dict[str, Any], config: RouterConfig, *, tools_active: bool = True
+) -> RouteDecision:
+    """Return whether to FUSE or answer SOLO for this request.
+
+    ``tools_active`` reports whether the panel will run server tools for this
+    request. With ``fuse_only_with_tools`` set, a tool-free request always routes
+    SOLO: bench/FINDINGS.md shows synthesis only beats the best single member when
+    panelists do real research, so fusing without tools just burns tokens.
+    """
     if config.mode == RouterMode.ALWAYS:
         return RouteDecision.FUSE
     if config.mode == RouterMode.NEVER:
+        return RouteDecision.SOLO
+    if config.fuse_only_with_tools and not tools_active:
         return RouteDecision.SOLO
 
     text = _user_text(body)
@@ -120,6 +130,8 @@ async def route_async(
     body: dict[str, Any],
     config: RouterConfig,
     client: UpstreamClient,
+    *,
+    tools_active: bool = True,
 ) -> RouteDecision:
     """Async router that supports the model classifier; else delegates to route().
 
@@ -127,7 +139,11 @@ async def route_async(
     never fails a request.
     """
     if config.mode != RouterMode.MODEL or config.classifier is None:
-        return route(body, config)
+        return route(body, config, tools_active=tools_active)
+
+    # Skip the classifier call entirely when the regime gate already forces SOLO.
+    if config.fuse_only_with_tools and not tools_active:
+        return RouteDecision.SOLO
 
     classifier = config.classifier.model_copy(update={"label": "router"})
     request = {
@@ -143,10 +159,10 @@ async def route_async(
             classifier, request, stream=False, phase=RequestPhase.PASS_THROUGH
         )
     except Exception:  # noqa: BLE001 - never fail routing on a classifier error
-        return route(body, config)
+        return route(body, config, tools_active=tools_active)
 
     if not isinstance(payload, dict):
-        return route(body, config)
+        return route(body, config, tools_active=tools_active)
     choices = payload.get("choices") or []
     text = ((choices[0].get("message") or {}).get("content") if choices else "") or ""
     upper = text.upper()
@@ -154,4 +170,4 @@ async def route_async(
         return RouteDecision.SOLO
     if "FUSE" in upper:
         return RouteDecision.FUSE
-    return route(body, config)
+    return route(body, config, tools_active=tools_active)

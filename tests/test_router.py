@@ -55,6 +55,38 @@ def test_mode_never_overrides_hard_prompt() -> None:
     )
 
 
+def test_fuse_only_with_tools_routes_solo_without_tools() -> None:
+    cfg = RouterConfig(enabled=True, fuse_only_with_tools=True)
+    # A prompt that would normally fuse (keyword) still routes SOLO with no tools.
+    assert route(_body("compare A and B"), cfg, tools_active=False) == RouteDecision.SOLO
+
+
+def test_fuse_only_with_tools_fuses_with_tools() -> None:
+    cfg = RouterConfig(enabled=True, fuse_only_with_tools=True)
+    assert route(_body("compare A and B"), cfg, tools_active=True) == RouteDecision.FUSE
+
+
+def test_fuse_only_with_tools_does_not_override_always() -> None:
+    cfg = RouterConfig(mode=RouterMode.ALWAYS, fuse_only_with_tools=True)
+    assert route(_body("hi"), cfg, tools_active=False) == RouteDecision.FUSE
+
+
+@pytest.mark.asyncio
+async def test_route_async_gate_skips_classifier_without_tools(mock_router) -> None:
+    route_mock = mock_router.post("https://mock.upstream/v1/chat/completions").mock(
+        return_value=httpx.Response(
+            200, json={"choices": [{"message": {"role": "assistant", "content": "FUSE"}}]}
+        )
+    )
+    cfg = _model_router()
+    cfg = cfg.model_copy(update={"fuse_only_with_tools": True})
+    client = UpstreamClient()
+    decision = await route_async(_body("anything"), cfg, client, tools_active=False)
+    assert decision == RouteDecision.SOLO
+    assert not route_mock.called  # gate decided before paying for the classifier
+    await client.aclose()
+
+
 def test_server_executable_tools_do_not_force_pass_through() -> None:
     body = {
         **_body("research this"),
@@ -152,6 +184,41 @@ async def test_router_solo_answers_with_single_call(
     assert response.json()["choices"][0]["message"]["content"] == "single answer"
     # SOLO routing makes exactly one upstream call to the configured single model
     # (not a panel fan-out, and not the literal "openfusion").
+    assert upstream.call_count == 1
+    assert seen == ["pass-model"]
+
+
+async def test_fuse_only_with_tools_routes_solo_end_to_end(
+    test_config: OpenFusionConfig, mock_router
+) -> None:
+    # Router would fuse this analytical prompt, but tools are off in test_config
+    # and fuse_only_with_tools is set -> a single SOLO pass-through call instead.
+    test_config.router = RouterConfig(enabled=True, fuse_only_with_tools=True)
+    app = create_app(test_config)
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(json.loads(request.content)["model"])
+        return httpx.Response(
+            200, json={"choices": [{"message": {"role": "assistant", "content": "solo"}}]}
+        )
+
+    upstream = mock_router.post("https://mock.upstream/v1/chat/completions").mock(
+        side_effect=handler
+    )
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as http_client:
+        response = await http_client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "openfusion",
+                "messages": [{"role": "user", "content": "analyze the trade-offs in depth"}],
+            },
+        )
+    await app.state.upstream_client.aclose()
+
+    assert response.status_code == 200
     assert upstream.call_count == 1
     assert seen == ["pass-model"]
 

@@ -161,6 +161,12 @@ class RouterConfig(BaseModel):
     # Candidates for the single-model (SOLO) branch; empty = use the default
     # pass-through model.
     route_models: list[RouteModel] = Field(default_factory=list)
+    # Regime gate (bench/FINDINGS.md): fusion only beats the best single model
+    # when panel members run tools, taking different research trajectories the
+    # judge can fuse. Without tools, synthesis adds no lift and can dilute the
+    # best answer. When set, prompts route SOLO unless web tools are active, so
+    # the panel's extra cost is spent only in the regime where it pays off.
+    fuse_only_with_tools: bool = False
 
 
 class DebateConfig(BaseModel):

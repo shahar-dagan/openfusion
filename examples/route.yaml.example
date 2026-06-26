@@ -8,6 +8,10 @@
 router:
   enabled: true
   mode: never           # never | heuristic | always | model
+  # Regime gate: fusion only beats the best single model when panelists run
+  # tools (see bench/FINDINGS.md). With this on, tool-free prompts route SOLO
+  # even if mode/heuristic would fuse them. Pair with `tools.web_search: true`.
+  fuse_only_with_tools: false
   route_models:
     - model: openai/gpt-4o-mini
       tier: fast         # short / simple prompts
