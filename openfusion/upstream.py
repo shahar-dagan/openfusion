@@ -348,23 +348,94 @@ class UpstreamClient:
 # Anthropic ↔ OpenAI format translation
 # ---------------------------------------------------------------------------
 
-_ANTHROPIC_STOP_REASONS = {"end_turn": "stop", "max_tokens": "length", "stop_sequence": "stop"}
+_ANTHROPIC_STOP_REASONS = {
+    "end_turn": "stop",
+    "max_tokens": "length",
+    "stop_sequence": "stop",
+    "tool_use": "tool_calls",
+}
+
+# tool_choice values that map 1-to-1
+_TOOL_CHOICE_MAP = {"none": {"type": "auto"}, "auto": {"type": "auto"}, "required": {"type": "any"}}
+
+
+def _openai_tools_to_anthropic(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    out = []
+    for t in tools:
+        fn = t.get("function", {})
+        entry: dict[str, Any] = {
+            "name": fn.get("name", ""),
+            "input_schema": fn.get("parameters") or {"type": "object", "properties": {}},
+        }
+        if fn.get("description"):
+            entry["description"] = fn["description"]
+        out.append(entry)
+    return out
+
+
+def _openai_message_to_anthropic(msg: dict[str, Any]) -> dict[str, Any] | None:
+    """Convert a single OpenAI message to Anthropic format.
+
+    Returns None for system messages (caller handles separately).
+    """
+    role = msg.get("role")
+    if role == "system":
+        return None
+
+    # tool result → user message with tool_result content block
+    if role == "tool":
+        return {
+            "role": "user",
+            "content": [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": msg.get("tool_call_id", ""),
+                    "content": msg.get("content") or "",
+                }
+            ],
+        }
+
+    # assistant message with tool_calls → content blocks with tool_use entries
+    if role == "assistant" and msg.get("tool_calls"):
+        blocks: list[dict[str, Any]] = []
+        if msg.get("content"):
+            blocks.append({"type": "text", "text": msg["content"]})
+        for tc in msg["tool_calls"]:
+            fn = tc.get("function", {})
+            raw_args = fn.get("arguments", "{}")
+            try:
+                inputs = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
+            except json.JSONDecodeError:
+                inputs = {}
+            blocks.append(
+                {
+                    "type": "tool_use",
+                    "id": tc.get("id", ""),
+                    "name": fn.get("name", ""),
+                    "input": inputs,
+                }
+            )
+        return {"role": "assistant", "content": blocks}
+
+    return {"role": role, "content": msg.get("content") or ""}
 
 
 def _openai_to_anthropic(body: dict[str, Any], model: str, *, stream: bool) -> dict[str, Any]:
     """Translate an OpenAI chat/completions request body to Anthropic Messages API format."""
     messages = body.get("messages", [])
     system: str | None = None
-    user_messages = []
+    anthropic_messages = []
     for msg in messages:
         if msg.get("role") == "system":
             system = str(msg.get("content", ""))
-        else:
-            user_messages.append({"role": msg["role"], "content": msg.get("content", "")})
+            continue
+        converted = _openai_message_to_anthropic(msg)
+        if converted is not None:
+            anthropic_messages.append(converted)
 
     payload: dict[str, Any] = {
         "model": model,
-        "messages": user_messages,
+        "messages": anthropic_messages,
         "max_tokens": body.get("max_tokens") or 1024,
         "stream": stream,
     }
@@ -373,7 +444,34 @@ def _openai_to_anthropic(body: dict[str, Any], model: str, *, stream: bool) -> d
     for key in ("temperature", "top_p", "stop"):
         if body.get(key) is not None:
             payload[key] = body[key]
+
+    if body.get("tools"):
+        payload["tools"] = _openai_tools_to_anthropic(body["tools"])
+        tc = body.get("tool_choice")
+        if isinstance(tc, dict) and tc.get("type") == "function":
+            payload["tool_choice"] = {"type": "tool", "name": tc["function"]["name"]}
+        elif isinstance(tc, str) and tc in _TOOL_CHOICE_MAP:
+            payload["tool_choice"] = _TOOL_CHOICE_MAP[tc]
+
     return payload
+
+
+def _anthropic_tool_use_to_openai(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    tool_calls = []
+    for block in blocks:
+        if block.get("type") != "tool_use":
+            continue
+        tool_calls.append(
+            {
+                "id": block.get("id", ""),
+                "type": "function",
+                "function": {
+                    "name": block.get("name", ""),
+                    "arguments": json.dumps(block.get("input", {})),
+                },
+            }
+        )
+    return tool_calls
 
 
 def _anthropic_to_openai(response: dict[str, Any]) -> dict[str, Any]:
@@ -393,6 +491,11 @@ def _anthropic_to_openai(response: dict[str, Any]) -> dict[str, Any]:
             usage_raw.get("input_tokens", 0) + usage_raw.get("output_tokens", 0)
         ),
     }
+    message: dict[str, Any] = {"role": "assistant", "content": text or None}
+    tool_calls = _anthropic_tool_use_to_openai(content_blocks)
+    if tool_calls:
+        message["tool_calls"] = tool_calls
+        message["content"] = text or None
     return {
         "id": response.get("id", ""),
         "object": "chat.completion",
@@ -400,7 +503,7 @@ def _anthropic_to_openai(response: dict[str, Any]) -> dict[str, Any]:
         "choices": [
             {
                 "index": 0,
-                "message": {"role": "assistant", "content": text},
+                "message": message,
                 "finish_reason": stop_reason,
             }
         ],
@@ -415,13 +518,61 @@ def _anthropic_stream_event_to_openai(event: dict[str, Any]) -> dict[str, Any] |
     """
     event_type = event.get("type")
 
+    if event_type == "content_block_start":
+        block = event.get("content_block", {})
+        if block.get("type") == "tool_use":
+            index = event.get("index", 0)
+            return {
+                "object": "chat.completion.chunk",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": index,
+                                    "id": block.get("id", ""),
+                                    "type": "function",
+                                    "function": {"name": block.get("name", ""), "arguments": ""},
+                                }
+                            ]
+                        },
+                        "finish_reason": None,
+                    }
+                ],
+            }
+        return None
+
     if event_type == "content_block_delta":
         delta = event.get("delta", {})
-        text = delta.get("text", "") if delta.get("type") == "text_delta" else ""
-        return {
-            "object": "chat.completion.chunk",
-            "choices": [{"index": 0, "delta": {"content": text}, "finish_reason": None}],
-        }
+        delta_type = delta.get("type")
+        if delta_type == "text_delta":
+            return {
+                "object": "chat.completion.chunk",
+                "choices": [
+                    {"index": 0, "delta": {"content": delta.get("text", "")}, "finish_reason": None}
+                ],
+            }
+        if delta_type == "input_json_delta":
+            index = event.get("index", 0)
+            return {
+                "object": "chat.completion.chunk",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": index,
+                                    "function": {"arguments": delta.get("partial_json", "")},
+                                }
+                            ]
+                        },
+                        "finish_reason": None,
+                    }
+                ],
+            }
+        return None
 
     if event_type == "message_delta":
         delta = event.get("delta", {})
