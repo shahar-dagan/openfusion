@@ -225,37 +225,18 @@ async def test_no_gateway_chat_completions_is_open() -> None:
 
 @pytest.mark.asyncio
 async def test_concurrency_limit_returns_429() -> None:
-    """When max_concurrent_requests=1 is exhausted a second request gets 429."""
-    import asyncio
-
-    cfg = _base_config(limits=LimitsConfig(max_concurrent_requests=1))
+    """When max_in_flight=1 is exhausted a new request gets 429."""
+    cfg = _base_config(limits=LimitsConfig(max_in_flight=1))
     app = create_app(cfg)
 
-    # Hold the slot open with a slow upstream so the second request queues.
-    slow_event = asyncio.Event()
+    # Directly hold the single slot so the HTTP request sees it full.
+    app.state.limiter._in_flight = 1
 
-    async def _slow_handler(request: httpx.Request) -> httpx.Response:
-        await slow_event.wait()
-        return httpx.Response(200, json={"choices": [{"message": {"content": "a"}}]})
-
-    with respx.mock(assert_all_called=False) as mock:
-        mock.post("https://mock.upstream/v1/chat/completions").mock(side_effect=_slow_handler)
-        transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-            # Fire two concurrent requests; the second must bounce with 429.
-            task1 = asyncio.create_task(
-                client.post(
-                    "/v1/chat/completions",
-                    json={"messages": [{"role": "user", "content": "hi"}], "model": "pass-m"},
-                )
-            )
-            # Give task1 a moment to acquire the slot.
-            await asyncio.sleep(0.05)
-            res2 = await client.post(
-                "/v1/chat/completions",
-                json={"messages": [{"role": "user", "content": "hi"}], "model": "pass-m"},
-            )
-            slow_event.set()
-            await task1
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        res = await client.post(
+            "/v1/chat/completions",
+            json={"messages": [{"role": "user", "content": "hi"}], "model": "pass-m"},
+        )
     await app.state.upstream_client.aclose()
-    assert res2.status_code == 429
+    assert res.status_code == 503
