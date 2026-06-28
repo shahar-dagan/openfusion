@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 import httpx
 import pytest
 
@@ -151,3 +153,68 @@ async def test_estimate_endpoint_requires_gateway_auth(mock_router) -> None:
     assert no_auth.status_code == 401
     assert wrong.status_code == 401
     assert ok.status_code == 200
+
+
+async def test_pricing_cache_hit_skips_fetch(mock_router) -> None:
+    """A valid cached entry is returned without making a second HTTP call."""
+    call_count = 0
+
+    async def _handler(request):
+        nonlocal call_count
+        call_count += 1
+        return httpx.Response(
+            200,
+            json={"data": [{"id": "m", "pricing": {"prompt": "0.001", "completion": "0.002"}}]},
+        )
+
+    mock_router.get("https://mock.upstream/v1/models").mock(side_effect=_handler)
+
+    # Prime the cache with one real fetch.
+    await pricing.get_prices("https://mock.upstream/v1")
+    assert call_count == 1
+
+    # Second call hits the cache — no new HTTP request.
+    result = await pricing.get_prices("https://mock.upstream/v1")
+    assert call_count == 1
+    assert "m" in result
+
+
+async def test_pricing_stale_cache_triggers_refetch(mock_router) -> None:
+    """An expired cache entry causes a fresh HTTP fetch."""
+    call_count = 0
+
+    async def _handler(request):
+        nonlocal call_count
+        call_count += 1
+        return httpx.Response(
+            200,
+            json={"data": [{"id": "m", "pricing": {"prompt": "0.001", "completion": "0.002"}}]},
+        )
+
+    mock_router.get("https://mock.upstream/v1/models").mock(side_effect=_handler)
+
+    # Inject an artificially expired entry.
+    pricing._cache["https://mock.upstream/v1"] = (
+        time.monotonic() - pricing._TTL_SECONDS - 1,
+        {},
+    )
+
+    result = await pricing.get_prices("https://mock.upstream/v1")
+    assert call_count == 1  # expired → re-fetched
+    assert "m" in result
+
+
+async def test_pricing_stale_cache_returned_on_error(mock_router) -> None:
+    """When the refresh fails, stale cached data is returned instead of empty."""
+    mock_router.get("https://mock.upstream/v1/models").mock(
+        return_value=httpx.Response(503, json={})
+    )
+
+    stale = {"m": {"prompt": 0.001, "completion": 0.002}}
+    pricing._cache["https://mock.upstream/v1"] = (
+        time.monotonic() - pricing._TTL_SECONDS - 1,
+        stale,
+    )
+
+    result = await pricing.get_prices("https://mock.upstream/v1")
+    assert result == stale  # stale data preserved on error
