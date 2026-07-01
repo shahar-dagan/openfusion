@@ -1,0 +1,44 @@
+# Mixed panel using Anthropic's native Messages API directly (no OpenRouter
+# in the middle) alongside an OpenRouter member, to show provider mixing.
+# `provider: anthropic` is optional here — it's inferred automatically from
+# an `api.anthropic.com` base_url; set it explicitly if you point base_url at
+# a proxy/gateway that doesn't contain that hostname.
+
+strategy: panel
+aggregator: judge
+
+cost_controls:
+  pass_through_max_tokens: 512
+  panel_max_tokens: 512
+  judge_max_tokens: 512
+
+panel:
+  - base_url: https://api.anthropic.com/v1
+    api_key: ${ANTHROPIC_API_KEY}
+    model: claude-sonnet-4-5
+    label: panel-claude
+    provider: anthropic
+  - base_url: https://openrouter.ai/api/v1
+    api_key: ${OPENROUTER_API_KEY}
+    model: openai/gpt-4o-mini
+    label: panel-openai
+
+judge:
+  base_url: https://api.anthropic.com/v1
+  api_key: ${ANTHROPIC_API_KEY}
+  model: claude-haiku-4-5
+  max_panel_tokens: 8000
+  provider: anthropic
+
+pass_through:
+  base_url: https://openrouter.ai/api/v1
+  api_key: ${OPENROUTER_API_KEY}
+  model: openai/gpt-4o-mini
+
+timeouts:
+  member_seconds: 120
+  judge_seconds: 120
+  total_seconds: 300
+
+gateway:
+  api_keys: []
