@@ -19,7 +19,10 @@ mixture-of-agents quality from models the user already pays for, as a tunable re
    responses (consensus / contradictions / partial coverage / blind spots) and writes the final
    answer. No per-prompt router in the MVP.
 3. **Models** — each panel member + judge is `{base_url, api_key, model}`; OpenRouter is the default
-   upstream but never a hard dependency (OpenAI / Together / local vLLM / Ollama all work).
+   upstream but never a hard dependency (OpenAI / Together / local vLLM / Ollama all work). Anthropic's
+   native Messages API is also supported directly (`provider: anthropic`, inferred from `base_url`
+   when it points at `api.anthropic.com`) — requests and streamed responses are translated to and
+   from the OpenAI shape transparently, so the rest of the pipeline is provider-agnostic.
 4. **Streaming** — wait for the panel, then stream the judge token-by-token; emit cosmetic progress
    events while waiting so the client never sees a dead spinner. Real SSE.
 5. **Config-driven** — panel, judge, strategy, timeouts in `openfusion.yaml`; the recipe is tunable.

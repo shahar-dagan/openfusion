@@ -206,7 +206,23 @@ flowchart LR
 
 - **Drop-in.** OpenAI-compatible `POST /v1/chat/completions` + `/v1/models`, real SSE streaming.
 - **No lock-in.** Each panel member + judge is `{base_url, api_key, model}`. OpenRouter is the
-  default upstream; OpenAI, Together, local vLLM/Ollama all work.
+  default upstream; OpenAI, Together, local vLLM/Ollama all work — as does Anthropic's own
+  Messages API natively (auto-detected from `base_url`, or set `provider: anthropic` explicitly):
+
+  ```yaml
+  panel:
+    - base_url: https://api.anthropic.com/v1
+      api_key: ${ANTHROPIC_API_KEY}
+      model: claude-sonnet-4-5
+      # provider: anthropic   # inferred automatically from api.anthropic.com; set explicitly
+      #                       # for a proxy/gateway URL that doesn't contain that hostname
+  ```
+
+  Requests/responses (including tool calls and streaming) are translated to and from the
+  Anthropic Messages format transparently — everything else in this doc (routing, strategies,
+  cost controls) works the same regardless of provider. See
+  [`examples/anthropic-native.yaml.example`](examples/anthropic-native.yaml.example) for a panel
+  mixing a native Anthropic member with an OpenRouter member.
 - **Config-driven.** Panel, judge, strategy, aggregator, router, and limits live in `openfusion.yaml`
   — or a one-word `preset`, or nothing at all (zero-config quick start).
 
