@@ -1,0 +1,62 @@
+# Pipeline strategy: sequential LLM steps where each step's output feeds the next.
+#
+# Use this when you want to chain prompts — e.g. research → critique → synthesize —
+# without wiring together a separate orchestration layer.
+#
+# Each step can be:
+#   use: solo   — single model call (fastest, cheapest)
+#   use: fuse   — full panel + judge synthesis (highest quality, higher cost)
+#
+# The {step_name} placeholder in a system prompt is replaced at runtime with
+# the text output of the named prior step.
+
+strategy: pipeline
+
+panel:
+  - base_url: ${OPENROUTER_BASE_URL}
+    api_key: ${OPENROUTER_API_KEY}
+    model: openai/gpt-4o-mini
+    label: panel-1
+  - base_url: ${OPENROUTER_BASE_URL}
+    api_key: ${OPENROUTER_API_KEY}
+    model: anthropic/claude-3-haiku
+    label: panel-2
+
+judge:
+  base_url: ${OPENROUTER_BASE_URL}
+  api_key: ${OPENROUTER_API_KEY}
+  model: openai/gpt-4o
+
+pass_through:
+  base_url: ${OPENROUTER_BASE_URL}
+  api_key: ${OPENROUTER_API_KEY}
+  model: openai/gpt-4o-mini
+
+pipeline:
+  steps:
+    - name: research
+      use: solo
+      system: >
+        You are a research assistant. Summarize what you know about the topic
+        concisely. Focus on facts, not opinions.
+
+    - name: critique
+      use: solo
+      system: >
+        Review the following research and identify gaps, errors, or missing
+        perspectives. Be specific.
+
+        Research:
+        {research}
+
+    - name: final
+      use: fuse
+      system: >
+        Produce a comprehensive, well-rounded answer incorporating the research
+        and addressing the critique.
+
+        Research:
+        {research}
+
+        Critique:
+        {critique}

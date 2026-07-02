@@ -32,6 +32,7 @@ from openfusion.config import (
     PassThroughConfig,
     ResponseCacheConfig,
     RouteModel,
+    Strategy,
     load_config,
 )
 from openfusion.cost import CostPolicy, RequestPhase
@@ -49,11 +50,13 @@ from openfusion.pricing import get_prices
 from openfusion.responsecache import ResponseCache, cache_key
 from openfusion.router import RouteDecision, route_request
 from openfusion.stream import (
+    buffer_pipeline,
     buffer_ranked,
     buffer_synthesis,
     buffer_vote,
     cached_response_dict,
     capture_stream,
+    pipeline_and_stream,
     ranked_and_stream,
     replay_cached_stream,
     synthesize_and_stream,
@@ -381,6 +384,17 @@ def create_app(
 
             acquired = limiter.acquire()
 
+            if wants_fusion and cfg.strategy == Strategy.PIPELINE:
+                if stream:
+                    response = await _pipeline_stream(
+                        request, body, cfg, client, started=started
+                    )
+                else:
+                    payload = await buffer_pipeline(body, cfg, client)
+                    _record_request("pipeline", "success", started)
+                    response = JSONResponse(content=payload)
+                return _attach_release(response, limiter, acquired)
+
             if not wants_fusion:
                 route_label = "pass_through"
                 limited_body = policy.apply_token_limit(
@@ -534,6 +548,39 @@ async def _pass_through(
     if not isinstance(result, dict):
         raise UpstreamError("Expected JSON upstream response")
     return JSONResponse(content=result)
+
+
+async def _pipeline_stream(
+    request: Request,
+    body: dict[str, Any],
+    config: OpenFusionConfig,
+    client: UpstreamClient,
+    *,
+    started: float,
+) -> StreamingResponse:
+    cancel_event = asyncio.Event()
+
+    async def event_stream() -> AsyncIterator[str]:
+        task = asyncio.create_task(_watch_disconnect(request, cancel_event))
+        outcome = "success"
+        try:
+            async for line in pipeline_and_stream(
+                body, config, client, cancel_event=cancel_event
+            ):
+                if cancel_event.is_set():
+                    break
+                yield line
+        except Exception:
+            outcome = "error"
+            raise
+        finally:
+            cancel_event.set()
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+            _record_request("pipeline", outcome, started)
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 async def _fusion_stream(
