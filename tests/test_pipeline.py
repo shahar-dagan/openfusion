@@ -5,8 +5,10 @@ from __future__ import annotations
 import pytest
 
 from openfusion.config import PipelineStepConfig, PipelineStepUse
-from openfusion.pipeline import _build_step_messages, _inject_step_outputs
-
+from openfusion.pipeline import (
+    _build_step_messages,
+    _inject_step_outputs,
+)
 
 # ---------------------------------------------------------------------------
 # _inject_step_outputs
@@ -162,7 +164,8 @@ async def test_run_pipeline_single_solo_step() -> None:
     )
 
     sse_body = (
-        'data: {"choices":[{"delta":{"role":"assistant","content":"hello"},"finish_reason":null}]}\n\n'
+        'data: {"choices":[{"delta":{"role":"assistant","content":"hello"}'
+        ',"finish_reason":null}]}\n\n'
         'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n'
         "data: [DONE]\n\n"
     )
