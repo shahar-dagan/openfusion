@@ -12,6 +12,7 @@ from typing import Any
 from openfusion.config import OpenFusionConfig
 from openfusion.errors import UpstreamError
 from openfusion.panel import PanelResult, expand_panel_members, gather_panel
+from openfusion.pipeline import run_pipeline
 from openfusion.ranked import pick_best
 from openfusion.synthesize import ANALYSIS_SENTINEL, synthesize
 from openfusion.upstream import UpstreamClient
@@ -629,3 +630,71 @@ async def buffer_ranked(
         request_body, panel, config, client, timeout=config.timeouts.judge_seconds
     )
     return _make_completion_response(content, config.fusion_model_name, usage=panel.usage_total)
+
+
+async def pipeline_and_stream(
+    request_body: dict[str, Any],
+    config: OpenFusionConfig,
+    client: UpstreamClient,
+    *,
+    cancel_event: asyncio.Event | None = None,
+) -> AsyncIterator[str]:
+    """Run a sequential pipeline and emit the final step's output as SSE."""
+    chunk_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
+    created = int(time.time())
+    model = config.fusion_model_name
+
+    role_sent = False
+    finish_reason: str | None = None
+    last_usage: dict[str, Any] | None = None
+
+    def _content_chunk(text: str, reason: str | None) -> str:
+        nonlocal role_sent
+        delta: dict[str, Any] = {}
+        if not role_sent:
+            delta["role"] = "assistant"
+            role_sent = True
+        if text:
+            delta["content"] = text
+        return json.dumps(
+            _chunk(
+                chunk_id=chunk_id, created=created, model=model,
+                delta=delta, finish_reason=reason,
+            )
+        )
+
+    async for delta_text, usage, reason in run_pipeline(
+        request_body, config, client, timeout=config.timeouts.judge_seconds
+    ):
+        if cancel_event is not None and cancel_event.is_set():
+            break
+        if delta_text:
+            yield _sse_line(None, _content_chunk(delta_text, None))
+        if usage:
+            last_usage = usage
+        if reason:
+            finish_reason = reason
+
+    yield _sse_line(None, _content_chunk("", finish_reason or "stop"))
+    if last_usage:
+        yield _sse_line("usage", json.dumps({"usage": last_usage}))
+    yield _sse_line(None, "[DONE]")
+
+
+async def buffer_pipeline(
+    request_body: dict[str, Any],
+    config: OpenFusionConfig,
+    client: UpstreamClient,
+) -> dict[str, Any]:
+    """Non-streaming pipeline execution."""
+    parts: list[str] = []
+    last_usage: dict[str, Any] | None = None
+    async for delta_text, usage, _reason in run_pipeline(
+        request_body, config, client, timeout=config.timeouts.judge_seconds
+    ):
+        if delta_text:
+            parts.append(delta_text)
+        if usage:
+            last_usage = usage
+    content = "".join(parts)
+    return _make_completion_response(content, config.fusion_model_name, usage=last_usage)

@@ -20,6 +20,7 @@ class Strategy(StrEnum):
     PANEL = "panel"
     SELF_FUSION = "self_fusion"
     DEBATE = "debate"
+    PIPELINE = "pipeline"
 
 
 class RouterMode(StrEnum):
@@ -188,6 +189,31 @@ class DebateConfig(BaseModel):
     rounds: int = Field(default=1, ge=1, le=3)
 
 
+class PipelineStepUse(StrEnum):
+    """How a pipeline step answers the prompt."""
+
+    FUSE = "fuse"    # full panel + judge synthesis
+    SOLO = "solo"    # single pass-through model (fastest / cheapest)
+
+
+class PipelineStepConfig(BaseModel):
+    """One step in a sequential pipeline."""
+
+    name: str
+    use: PipelineStepUse = PipelineStepUse.SOLO
+    # Override the model for SOLO steps (falls back to pass_through model).
+    model: str | None = None
+    # System prompt for this step. Supports {step_name} placeholders that are
+    # replaced with the text output of a previous step at runtime.
+    system: str | None = None
+
+
+class PipelineConfig(BaseModel):
+    """Sequential chain of LLM steps; output of each feeds the next."""
+
+    steps: list[PipelineStepConfig] = Field(default_factory=list)
+
+
 class LimitsConfig(BaseModel):
     """Concurrency and per-key rate limits for serving public traffic.
 
@@ -284,6 +310,7 @@ class OpenFusionConfig(BaseModel):
     judge: JudgeConfig | None = None
     self_fusion: SelfFusionConfig = Field(default_factory=SelfFusionConfig)
     debate: DebateConfig = Field(default_factory=DebateConfig)
+    pipeline: PipelineConfig = Field(default_factory=PipelineConfig)
     router: RouterConfig = Field(default_factory=RouterConfig)
     limits: LimitsConfig = Field(default_factory=LimitsConfig)
     cache: CacheConfig = Field(default_factory=CacheConfig)
