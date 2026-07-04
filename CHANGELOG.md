@@ -12,6 +12,10 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and nudges future decisions toward whichever has been winning once either side has enough
   observations. In-memory only (resets on restart); read-only snapshot at
   `GET /v1/routing/outcomes`.
+- **Pipeline strategy** (`strategy: pipeline`) — chain sequential LLM steps, each feeding its
+  output to the next via a `{step_name}` placeholder in the following step's system prompt. Each
+  step is `use: solo` (single model) or `use: fuse` (full panel + judge synthesis); the last
+  step's output streams to the caller. See `examples/pipeline.yaml.example`.
 - **Classifier model routing** — with `router.mode: model` + `route_models`, one classifier call
   picks FUSE *or the specific model* for the prompt (a single decision instead of two), falling back
   to the difficulty heuristic on any error. Unified entry point `router.route_request`.

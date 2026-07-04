@@ -22,6 +22,9 @@ Directional, not a promise. Issues and PRs welcome on any of these.
   rate per prompt tier (`openfusion.outcomes.OutcomeStore`) nudges the heuristic
   router once either side has enough observations; read-only at
   `GET /v1/routing/outcomes`.
+- **Pipeline strategy** (`strategy: pipeline`) — chain sequential `solo`/`fuse` steps, each
+  feeding its output to the next via a `{step_name}` placeholder. See
+  `examples/pipeline.yaml.example`.
 
 ## Next
 - **Live `$` pricing in the estimate for non-OpenRouter providers** and a
