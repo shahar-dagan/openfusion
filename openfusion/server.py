@@ -394,14 +394,14 @@ def create_app(
 
             if wants_fusion and cfg.strategy == Strategy.PIPELINE:
                 if stream:
-                    response = await _pipeline_stream(
-                        request, body, cfg, client, started=started
+                    return _attach_release(
+                        await _pipeline_stream(request, body, cfg, client, started=started),
+                        limiter,
+                        acquired,
                     )
-                else:
-                    payload = await buffer_pipeline(body, cfg, client)
-                    _record_request("pipeline", "success", started)
-                    response = JSONResponse(content=payload)
-                return _attach_release(response, limiter, acquired)
+                payload = await buffer_pipeline(body, cfg, client)
+                _record_request("pipeline", "success", started)
+                return _attach_release(JSONResponse(content=payload), limiter, acquired)
 
             if not wants_fusion:
                 route_label = "pass_through"
