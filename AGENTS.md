@@ -2,7 +2,7 @@
 
 ## Cursor Cloud specific instructions
 
-`openfusion` is a single, stateless Python (3.12) FastAPI service — an OpenAI-compatible
+`openfusion` is a single, stateless Python (3.11+) FastAPI service — an OpenAI-compatible
 "compound-model" proxy. There is no database, cache, or queue. Dependencies are managed by
 `pyproject.toml` and installed with `pip install -e ".[dev]"` (run automatically by the
 startup update script).
