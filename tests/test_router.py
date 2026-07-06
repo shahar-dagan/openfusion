@@ -20,6 +20,8 @@ from openfusion.config import (
 )
 from openfusion.router import (
     RouteDecision,
+    _classify_route,
+    _user_text,
     prompt_tier,
     route,
     route_async,
@@ -336,3 +338,72 @@ async def test_route_async_unrecognized_classifier_response_falls_back(mock_rout
     decision = await route_async(_body("compare these options"), _model_router(), client)
     assert decision == RouteDecision.FUSE
     await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_route_async_classifier_says_fuse(mock_router) -> None:
+    mock_router.post("https://mock.upstream/v1/chat/completions").mock(
+        return_value=httpx.Response(200, json={"choices": [{"message": {"content": "FUSE"}}]})
+    )
+    client = UpstreamClient()
+    decision = await route_async(_body("hard one"), _model_router(), client)
+    assert decision == RouteDecision.FUSE
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_route_async_falls_back_on_non_dict_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Streaming isn't requested, so a non-dict payload can only come from a client bug."""
+
+    async def fake_chat_completion(*args, **kwargs):
+        async def _gen():
+            yield {}
+
+        return _gen()
+
+    client = UpstreamClient()
+    monkeypatch.setattr(client, "chat_completion", fake_chat_completion)
+    # Falls back to the heuristic; keyword prompt fuses.
+    decision = await route_async(_body("compare these options"), _model_router(), client)
+    assert decision == RouteDecision.FUSE
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_classify_route_falls_back_on_non_dict_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Streaming isn't requested, so a non-dict payload can only come from a client bug."""
+
+    async def fake_chat_completion(*args, **kwargs):
+        async def _gen():
+            yield {}
+
+        return _gen()
+
+    client = UpstreamClient()
+    monkeypatch.setattr(client, "chat_completion", fake_chat_completion)
+    result = await _classify_route(_body("anything"), _model_routes(), client)
+    assert result is None
+    await client.aclose()
+
+
+def test_user_text_empty_when_messages_missing_or_not_a_list() -> None:
+    assert _user_text({}) == ""
+    assert _user_text({"messages": "not-a-list"}) == ""
+
+
+def test_user_text_collects_multimodal_text_blocks() -> None:
+    body = {
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "describe this"},
+                    {"type": "image_url", "image_url": {"url": "https://example.com/a.png"}},
+                    {"type": "text", "text": "in detail"},
+                ],
+            }
+        ]
+    }
+    assert _user_text(body) == "describe this\nin detail"
