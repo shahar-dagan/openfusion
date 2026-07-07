@@ -4,12 +4,9 @@ from __future__ import annotations
 
 import threading
 
-import pytest
-
 from openfusion.config import RouterConfig, RouterMode, Tier
-from openfusion.outcomes import OutcomeStore, _ALPHA, _MIN_OBSERVATIONS, _NUDGE_THRESHOLD
+from openfusion.outcomes import _ALPHA, _MIN_OBSERVATIONS, OutcomeStore
 from openfusion.router import RouteDecision, route
-
 
 # ---------------------------------------------------------------------------
 # OutcomeStore.record / EMA update
