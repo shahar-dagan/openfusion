@@ -12,10 +12,22 @@ import httpx
 
 from openfusion.config import JudgeConfig, PanelMember
 from openfusion.errors import UpstreamError
+from openfusion.health import HEALTH
 from openfusion.metrics import METRICS
 
 DEFAULT_TIMEOUT = httpx.Timeout(connect=10.0, read=300.0, write=30.0, pool=10.0)
 LOGGER = logging.getLogger("openfusion.upstream")
+
+
+def _provider_id_from_url(base_url: str) -> str:
+    """Derive a stable provider id from a base URL for health/latency tracking."""
+    from urllib.parse import urlparse
+
+    host = urlparse(base_url).netloc or base_url
+    # Strip port and www. prefix; use the second-level domain as the id.
+    host = host.split(":")[0].removeprefix("www.")
+    parts = host.split(".")
+    return parts[-2] if len(parts) >= 2 else host
 
 
 class UpstreamClient:
@@ -38,9 +50,12 @@ class UpstreamClient:
         timeout: float | None = None,
         phase: str | None = None,
     ) -> dict[str, Any] | AsyncIterator[dict[str, Any]]:
+        provider_id = _provider_id_from_url(member.base_url)
+
         if member.provider == "anthropic":
             return await self._anthropic_chat_completion(
-                member, body, stream=stream, timeout=timeout, phase=phase
+                member, body, stream=stream, timeout=timeout, phase=phase,
+                provider_id=provider_id,
             )
 
         url = f"{member.base_url}/chat/completions"
@@ -59,6 +74,7 @@ class UpstreamClient:
                 request_timeout,
                 label=getattr(member, "label", None),
                 phase=phase,
+                provider_id=provider_id,
             )
         return await self._json_chat_completion(
             url,
@@ -67,6 +83,7 @@ class UpstreamClient:
             request_timeout,
             label=getattr(member, "label", None),
             phase=phase,
+            provider_id=provider_id,
         )
 
     # ------------------------------------------------------------------
@@ -83,6 +100,7 @@ class UpstreamClient:
         stream: bool,
         timeout: float | None,
         phase: str | None,
+        provider_id: str,
     ) -> dict[str, Any] | AsyncIterator[dict[str, Any]]:
         url = f"{member.base_url}/messages"
         headers = {
@@ -97,13 +115,19 @@ class UpstreamClient:
             return self._anthropic_stream(
                 url, headers, payload, request_timeout,
                 label=getattr(member, "label", None), phase=phase,
+                provider_id=provider_id,
             )
         started = time.perf_counter()
-        response = await self._client.post(
-            url, headers=headers, json=payload, timeout=request_timeout
-        )
+        try:
+            response = await self._client.post(
+                url, headers=headers, json=payload, timeout=request_timeout
+            )
+        except Exception:
+            HEALTH.record_failure(provider_id)
+            raise
         elapsed_ms = int((time.perf_counter() - started) * 1000)
         if response.status_code >= 400:
+            HEALTH.record_failure(provider_id)
             self._log_request(
                 phase=phase, label=getattr(member, "label", None),
                 model=member.model, stream=False,
@@ -111,6 +135,7 @@ class UpstreamClient:
                 level=logging.WARNING,
             )
             raise self._build_upstream_error(response.status_code, response.content)
+        HEALTH.record_success(provider_id, elapsed_ms)
         raw = response.json()
         converted = _anthropic_to_openai(raw)
         self._log_request(
@@ -130,52 +155,64 @@ class UpstreamClient:
         *,
         label: str | None,
         phase: str | None,
+        provider_id: str,
     ) -> AsyncIterator[dict[str, Any]]:
         started = time.perf_counter()
         status_code: int | None = None
         usage: dict[str, Any] | None = None
         chunks = 0
-        async with self._client.stream(
-            "POST", url, headers=headers, json=payload, timeout=timeout
-        ) as response:
-            status_code = response.status_code
-            if response.status_code >= 400:
-                body = await response.aread()
-                self._log_request(
-                    phase=phase, label=label,
-                    model=str(payload.get("model")), stream=True,
-                    status_code=response.status_code,
-                    latency_ms=int((time.perf_counter() - started) * 1000),
-                    level=logging.WARNING,
-                )
-                raise self._build_upstream_error(response.status_code, body)
+        success = False
+        try:
+            async with self._client.stream(
+                "POST", url, headers=headers, json=payload, timeout=timeout
+            ) as response:
+                status_code = response.status_code
+                if response.status_code >= 400:
+                    body = await response.aread()
+                    HEALTH.record_failure(provider_id)
+                    self._log_request(
+                        phase=phase, label=label,
+                        model=str(payload.get("model")), stream=True,
+                        status_code=response.status_code,
+                        latency_ms=int((time.perf_counter() - started) * 1000),
+                        level=logging.WARNING,
+                    )
+                    raise self._build_upstream_error(response.status_code, body)
 
-            try:
-                async for line in response.aiter_lines():
-                    if not line or not line.startswith("data: "):
-                        continue
-                    data = line[6:]
-                    if data == "[DONE]":
-                        break
-                    try:
-                        event = json.loads(data)
-                    except json.JSONDecodeError:
-                        continue
-                    chunk = _anthropic_stream_event_to_openai(event)
-                    if chunk is None:
-                        continue
-                    if "usage" in chunk:
-                        usage = chunk["usage"]
-                    chunks += 1
-                    yield chunk
-            finally:
-                self._log_request(
-                    phase=phase, label=label,
-                    model=str(payload.get("model")), stream=True,
-                    status_code=status_code,
-                    latency_ms=int((time.perf_counter() - started) * 1000),
-                    usage=usage, chunks=chunks,
-                )
+                try:
+                    async for line in response.aiter_lines():
+                        if not line or not line.startswith("data: "):
+                            continue
+                        data = line[6:]
+                        if data == "[DONE]":
+                            break
+                        try:
+                            event = json.loads(data)
+                        except json.JSONDecodeError:
+                            continue
+                        chunk = _anthropic_stream_event_to_openai(event)
+                        if chunk is None:
+                            continue
+                        if "usage" in chunk:
+                            usage = chunk["usage"]
+                        chunks += 1
+                        yield chunk
+                    success = True
+                finally:
+                    elapsed_ms = int((time.perf_counter() - started) * 1000)
+                    if success:
+                        HEALTH.record_success(provider_id, elapsed_ms)
+                    self._log_request(
+                        phase=phase, label=label,
+                        model=str(payload.get("model")), stream=True,
+                        status_code=status_code,
+                        latency_ms=elapsed_ms,
+                        usage=usage, chunks=chunks,
+                    )
+        except Exception:
+            if not success and status_code is None:
+                HEALTH.record_failure(provider_id)
+            raise
 
     async def _json_chat_completion(
         self,
@@ -186,11 +223,17 @@ class UpstreamClient:
         *,
         label: str | None,
         phase: str | None,
+        provider_id: str,
     ) -> dict[str, Any]:
         started = time.perf_counter()
-        response = await self._client.post(url, headers=headers, json=payload, timeout=timeout)
+        try:
+            response = await self._client.post(url, headers=headers, json=payload, timeout=timeout)
+        except Exception:
+            HEALTH.record_failure(provider_id)
+            raise
         elapsed_ms = int((time.perf_counter() - started) * 1000)
         if response.status_code >= 400:
+            HEALTH.record_failure(provider_id)
             self._log_request(
                 phase=phase,
                 label=label,
@@ -201,6 +244,7 @@ class UpstreamClient:
                 level=logging.WARNING,
             )
             return self._parse_response(response)
+        HEALTH.record_success(provider_id, elapsed_ms)
         parsed = self._parse_response(response)
         self._log_request(
             phase=phase,
@@ -222,57 +266,69 @@ class UpstreamClient:
         *,
         label: str | None,
         phase: str | None,
+        provider_id: str,
     ) -> AsyncIterator[dict[str, Any]]:
         started = time.perf_counter()
         status_code: int | None = None
         usage: dict[str, Any] | None = None
         chunks = 0
-        async with self._client.stream(
-            "POST",
-            url,
-            headers=headers,
-            json=payload,
-            timeout=timeout,
-        ) as response:
-            status_code = response.status_code
-            if response.status_code >= 400:
-                body = await response.aread()
-                self._log_request(
-                    phase=phase,
-                    label=label,
-                    model=str(payload.get("model")),
-                    stream=True,
-                    status_code=response.status_code,
-                    latency_ms=int((time.perf_counter() - started) * 1000),
-                    level=logging.WARNING,
-                )
-                raise self._build_upstream_error(response.status_code, body)
+        success = False
+        try:
+            async with self._client.stream(
+                "POST",
+                url,
+                headers=headers,
+                json=payload,
+                timeout=timeout,
+            ) as response:
+                status_code = response.status_code
+                if response.status_code >= 400:
+                    body = await response.aread()
+                    HEALTH.record_failure(provider_id)
+                    self._log_request(
+                        phase=phase,
+                        label=label,
+                        model=str(payload.get("model")),
+                        stream=True,
+                        status_code=response.status_code,
+                        latency_ms=int((time.perf_counter() - started) * 1000),
+                        level=logging.WARNING,
+                    )
+                    raise self._build_upstream_error(response.status_code, body)
 
-            try:
-                async for line in response.aiter_lines():
-                    if not line or not line.startswith("data: "):
-                        continue
-                    data = line[6:]
-                    if data == "[DONE]":
-                        break
-                    try:
-                        chunk = json.loads(data)
-                    except json.JSONDecodeError as exc:
-                        raise UpstreamError(f"Invalid upstream SSE payload: {exc}") from exc
-                    chunks += 1
-                    usage = self._extract_usage(chunk) or usage
-                    yield chunk
-            finally:
-                self._log_request(
-                    phase=phase,
-                    label=label,
-                    model=str(payload.get("model")),
-                    stream=True,
-                    status_code=status_code,
-                    latency_ms=int((time.perf_counter() - started) * 1000),
-                    usage=usage,
-                    chunks=chunks,
-                )
+                try:
+                    async for line in response.aiter_lines():
+                        if not line or not line.startswith("data: "):
+                            continue
+                        data = line[6:]
+                        if data == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(data)
+                        except json.JSONDecodeError as exc:
+                            raise UpstreamError(f"Invalid upstream SSE payload: {exc}") from exc
+                        chunks += 1
+                        usage = self._extract_usage(chunk) or usage
+                        yield chunk
+                    success = True
+                finally:
+                    elapsed_ms = int((time.perf_counter() - started) * 1000)
+                    if success:
+                        HEALTH.record_success(provider_id, elapsed_ms)
+                    self._log_request(
+                        phase=phase,
+                        label=label,
+                        model=str(payload.get("model")),
+                        stream=True,
+                        status_code=status_code,
+                        latency_ms=elapsed_ms,
+                        usage=usage,
+                        chunks=chunks,
+                    )
+        except Exception:
+            if not success and status_code is None:
+                HEALTH.record_failure(provider_id)
+            raise
 
     def _parse_response(self, response: httpx.Response) -> dict[str, Any]:
         if response.status_code >= 400:

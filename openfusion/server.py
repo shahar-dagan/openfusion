@@ -248,6 +248,17 @@ def create_app(
             media_type="text/plain; version=0.0.4; charset=utf-8",
         )
 
+    @app.get("/v1/health/providers")
+    async def provider_health(
+        authorization: str | None = Header(default=None),
+        cfg: OpenFusionConfig = Depends(get_config),
+    ) -> dict[str, Any]:
+        """Return per-provider health status and latency percentiles."""
+        from openfusion.health import HEALTH
+
+        _validate_gateway_auth(cfg, authorization)
+        return {"providers": HEALTH.snapshot()}
+
     @app.get("/v1/registry/models")
     async def registry_models(
         authorization: str | None = Header(default=None),
