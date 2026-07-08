@@ -1,0 +1,266 @@
+# Built-in provider and model catalog.
+# Users extend this via `providers:` in their openfusion.yaml.
+# model ids follow the `provider/model-name` convention matching OpenRouter.
+
+providers:
+  - id: openai
+    base_url: https://api.openai.com/v1
+    format: openai
+    env_key: OPENAI_API_KEY
+
+  - id: anthropic
+    base_url: https://api.anthropic.com/v1
+    format: anthropic
+    env_key: ANTHROPIC_API_KEY
+
+  - id: openrouter
+    base_url: https://openrouter.ai/api/v1
+    format: openai
+    env_key: OPENROUTER_API_KEY
+
+  - id: groq
+    base_url: https://api.groq.com/openai/v1
+    format: openai
+    env_key: GROQ_API_KEY
+
+  - id: together
+    base_url: https://api.together.xyz/v1
+    format: openai
+    env_key: TOGETHER_API_KEY
+
+  - id: mistral
+    base_url: https://api.mistral.ai/v1
+    format: openai
+    env_key: MISTRAL_API_KEY
+
+  - id: deepseek
+    base_url: https://api.deepseek.com/v1
+    format: openai
+    env_key: DEEPSEEK_API_KEY
+
+  - id: google
+    base_url: https://generativelanguage.googleapis.com/v1beta/openai
+    format: openai
+    env_key: GOOGLE_API_KEY
+
+  - id: moonshotai
+    base_url: https://api.moonshot.cn/v1
+    format: openai
+    env_key: MOONSHOT_API_KEY
+
+  - id: xai
+    base_url: https://api.x.ai/v1
+    format: openai
+    env_key: XAI_API_KEY
+
+  - id: cohere
+    base_url: https://api.cohere.com/compatibility/v1
+    format: openai
+    env_key: COHERE_API_KEY
+
+  - id: perplexity
+    base_url: https://api.perplexity.ai
+    format: openai
+    env_key: PERPLEXITYAI_API_KEY
+
+models:
+  # ── OpenAI ──────────────────────────────────────────────────────────────────
+  - id: openai/gpt-4o
+    provider: openai
+    context: 128000
+    tier: strong
+    input_cost: 2.50
+    output_cost: 10.00
+
+  - id: openai/gpt-4o-mini
+    provider: openai
+    context: 128000
+    tier: fast
+    input_cost: 0.15
+    output_cost: 0.60
+
+  - id: openai/o3
+    provider: openai
+    context: 200000
+    tier: strong
+    input_cost: 10.00
+    output_cost: 40.00
+
+  - id: openai/o4-mini
+    provider: openai
+    context: 200000
+    tier: balanced
+    input_cost: 1.10
+    output_cost: 4.40
+
+  # ── Anthropic ───────────────────────────────────────────────────────────────
+  - id: anthropic/claude-opus-4-5
+    provider: anthropic
+    context: 200000
+    tier: strong
+    input_cost: 15.00
+    output_cost: 75.00
+
+  - id: anthropic/claude-sonnet-4-5
+    provider: anthropic
+    context: 200000
+    tier: strong
+    input_cost: 3.00
+    output_cost: 15.00
+
+  - id: anthropic/claude-haiku-4-5
+    provider: anthropic
+    context: 200000
+    tier: fast
+    input_cost: 0.80
+    output_cost: 4.00
+
+  # ── Google ──────────────────────────────────────────────────────────────────
+  - id: google/gemini-2.5-pro
+    provider: google
+    context: 1000000
+    tier: strong
+    input_cost: 1.25
+    output_cost: 10.00
+
+  - id: google/gemini-2.5-flash
+    provider: google
+    context: 1000000
+    tier: balanced
+    input_cost: 0.15
+    output_cost: 0.60
+
+  - id: google/gemini-2.0-flash
+    provider: google
+    context: 1000000
+    tier: fast
+    input_cost: 0.10
+    output_cost: 0.40
+
+  # ── Groq ────────────────────────────────────────────────────────────────────
+  - id: groq/llama-3.3-70b-versatile
+    provider: groq
+    context: 128000
+    tier: balanced
+    input_cost: 0.59
+    output_cost: 0.79
+
+  - id: groq/llama-3.1-8b-instant
+    provider: groq
+    context: 128000
+    tier: fast
+    input_cost: 0.05
+    output_cost: 0.08
+
+  - id: groq/moonshotai/kimi-k2-instruct
+    provider: groq
+    context: 131072
+    tier: strong
+    input_cost: 1.00
+    output_cost: 3.00
+
+  # ── Mistral ─────────────────────────────────────────────────────────────────
+  - id: mistral/mistral-large-latest
+    provider: mistral
+    context: 131072
+    tier: strong
+    input_cost: 2.00
+    output_cost: 6.00
+
+  - id: mistral/mistral-small-latest
+    provider: mistral
+    context: 32000
+    tier: fast
+    input_cost: 0.10
+    output_cost: 0.30
+
+  # ── DeepSeek ────────────────────────────────────────────────────────────────
+  - id: deepseek/deepseek-chat
+    provider: deepseek
+    context: 64000
+    tier: balanced
+    input_cost: 0.27
+    output_cost: 1.10
+
+  - id: deepseek/deepseek-reasoner
+    provider: deepseek
+    context: 64000
+    tier: strong
+    input_cost: 0.55
+    output_cost: 2.19
+
+  # ── Together ─────────────────────────────────────────────────────────────────
+  - id: together/meta-llama/Llama-3.3-70B-Instruct-Turbo
+    provider: together
+    context: 131072
+    tier: balanced
+    input_cost: 0.88
+    output_cost: 0.88
+
+  - id: together/meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo
+    provider: together
+    context: 131072
+    tier: fast
+    input_cost: 0.18
+    output_cost: 0.18
+
+  # ── xAI ─────────────────────────────────────────────────────────────────────
+  - id: xai/grok-3
+    provider: xai
+    context: 131072
+    tier: strong
+    input_cost: 3.00
+    output_cost: 15.00
+
+  - id: xai/grok-3-mini
+    provider: xai
+    context: 131072
+    tier: fast
+    input_cost: 0.30
+    output_cost: 0.50
+
+  # ── Perplexity ───────────────────────────────────────────────────────────────
+  - id: perplexity/sonar-pro
+    provider: perplexity
+    context: 200000
+    tier: strong
+    input_cost: 3.00
+    output_cost: 15.00
+
+  - id: perplexity/sonar
+    provider: perplexity
+    context: 128000
+    tier: balanced
+    input_cost: 1.00
+    output_cost: 1.00
+
+  # ── Cohere ───────────────────────────────────────────────────────────────────
+  - id: cohere/command-r-plus
+    provider: cohere
+    context: 128000
+    tier: strong
+    input_cost: 2.50
+    output_cost: 10.00
+
+  - id: cohere/command-r
+    provider: cohere
+    context: 128000
+    tier: balanced
+    input_cost: 0.15
+    output_cost: 0.60
+
+  # ── MoonshotAI ───────────────────────────────────────────────────────────────
+  - id: moonshotai/kimi-k2
+    provider: moonshotai
+    context: 131072
+    tier: strong
+    input_cost: 0.60
+    output_cost: 2.50
+
+  # ── OpenRouter (pass-through for any model) ──────────────────────────────────
+  - id: openrouter/auto
+    provider: openrouter
+    context: 200000
+    tier: balanced
+    input_cost: 0.00
+    output_cost: 0.00

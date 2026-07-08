@@ -248,6 +248,35 @@ def create_app(
             media_type="text/plain; version=0.0.4; charset=utf-8",
         )
 
+    @app.get("/v1/registry/models")
+    async def registry_models(
+        authorization: str | None = Header(default=None),
+        cfg: OpenFusionConfig = Depends(get_config),
+    ) -> dict[str, Any]:
+        """Return the full model catalog from the built-in registry."""
+        from openfusion.registry import ModelRegistry
+
+        _validate_gateway_auth(cfg, authorization)
+        extra = [
+            {"id": p.id, "base_url": p.base_url, "format": p.format}
+            for p in cfg.providers
+            if p.base_url
+        ]
+        reg = ModelRegistry.load(extra_providers=extra or None)
+        return {
+            "models": [
+                {
+                    "id": m.id,
+                    "provider": m.provider,
+                    "tier": m.tier.value,
+                    "context": m.context,
+                    "input_cost_per_mtok": m.input_cost,
+                    "output_cost_per_mtok": m.output_cost,
+                }
+                for m in sorted(reg.list_models(), key=lambda m: m.id)
+            ]
+        }
+
     @app.get("/v1/routing/outcomes")
     async def routing_outcomes(
         authorization: str | None = Header(default=None),

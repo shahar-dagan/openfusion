@@ -302,6 +302,22 @@ class PassThroughConfig(BaseModel):
     _normalize_base_url = field_validator("base_url")(_strip_trailing_slash)
 
 
+class ProviderConfig(BaseModel):
+    """User-defined provider entry that extends or overrides the built-in registry.
+
+    ``id`` must match a known provider (to override its API key) or be a new id
+    (to add a custom/self-hosted provider). ``api_key`` takes precedence over the
+    provider's ``env_key`` environment variable.
+    """
+
+    id: str
+    base_url: str | None = None       # required for new providers; optional for overrides
+    api_key: str | None = None        # explicit key; falls back to env_key if absent
+    format: Literal["openai", "anthropic"] = "openai"
+
+    _normalize_base_url = field_validator("base_url")(_strip_trailing_slash)
+
+
 class OpenFusionConfig(BaseModel):
     preset: Preset | None = None
     strategy: Strategy = Strategy.SELF_FUSION
@@ -321,6 +337,7 @@ class OpenFusionConfig(BaseModel):
     cost_controls: CostControlsConfig = Field(default_factory=CostControlsConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     pass_through: PassThroughConfig | None = None
+    providers: list[ProviderConfig] = Field(default_factory=list)
     fusion_model_name: str = "openfusion"
     # Allow clients to override panel/judge/preset/tools per request via the
     # `openfusion` request field (used by the playground). Off by default: when
@@ -333,6 +350,72 @@ class OpenFusionConfig(BaseModel):
     # side-by-side view). Per-request via the `openfusion` override; off for the
     # plain API so intermediate answers aren't exposed by default.
     expose_panel: bool = False
+
+    @model_validator(mode="after")
+    def resolve_from_registry(self) -> OpenFusionConfig:
+        """Expand provider/model shorthand into full endpoint config via registry."""
+        from openfusion.registry import ModelRegistry  # avoid circular at module level
+
+        if not self.providers:
+            return self
+
+        # Build a per-provider api_key map from ProviderConfig entries
+        api_keys: dict[str, str] = {}
+        extra_providers: list[dict[str, Any]] = []
+        for pc in self.providers:
+            if pc.api_key:
+                api_keys[pc.id] = pc.api_key
+            if pc.base_url:
+                extra_providers.append(
+                    {"id": pc.id, "base_url": pc.base_url, "format": pc.format}
+                )
+
+        registry = ModelRegistry.load(extra_providers=extra_providers or None)
+
+        def _fill(model: str, base_url: str | None, api_key: str) -> tuple[str, str, str] | None:
+            """Return (base_url, api_key, bare_model) if registry can resolve, else None."""
+            if base_url:
+                return None  # already explicit; skip
+            if not registry.is_registered(model):
+                return None
+            resolved = registry.resolve(model, api_keys)
+            if resolved is None:
+                return None
+            return resolved.base_url, resolved.api_key or api_key, resolved.model_id
+
+        # Resolve panel members
+        new_panel = []
+        for m in self.panel:
+            result = _fill(m.model, m.base_url, m.api_key)
+            if result:
+                base_url, api_key, bare_model = result
+                m = m.model_copy(
+                    update={"base_url": base_url, "api_key": api_key, "model": bare_model}
+                )
+            new_panel.append(m)
+        self.panel = new_panel
+
+        # Resolve judge
+        if self.judge is not None:
+            result = _fill(self.judge.model, self.judge.base_url, self.judge.api_key)
+            if result:
+                base_url, api_key, bare_model = result
+                self.judge = self.judge.model_copy(
+                    update={"base_url": base_url, "api_key": api_key, "model": bare_model}
+                )
+
+        # Resolve pass_through
+        if self.pass_through is not None:
+            result = _fill(
+                self.pass_through.model, self.pass_through.base_url, self.pass_through.api_key
+            )
+            if result:
+                base_url, api_key, bare_model = result
+                self.pass_through = self.pass_through.model_copy(
+                    update={"base_url": base_url, "api_key": api_key, "model": bare_model}
+                )
+
+        return self
 
     def resolved_pass_through(self) -> PassThroughConfig:
         if self.pass_through is not None:
