@@ -209,6 +209,14 @@ def create_app(
     app.state.limiter = RequestLimiter(app_config.limits if app_config else LimitsConfig())
     rc = app_config.response_cache if app_config else ResponseCacheConfig()
     app.state.response_cache = ResponseCache(rc.ttl_seconds, rc.max_entries)
+
+    # Populate key pools from ProviderConfig entries that have multiple keys.
+    if app_config:
+        from openfusion.health import KEY_REGISTRY
+
+        for pc in app_config.providers:
+            if len(pc.api_keys) > 1:
+                KEY_REGISTRY.register(pc.id, pc.api_keys)
     # Keyed by the caller's gateway token (or "anonymous") so one client's UI-set
     # key is never used for another client's requests. See _client_key().
     app.state.runtime_api_keys = {}

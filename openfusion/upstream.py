@@ -12,7 +12,7 @@ import httpx
 
 from openfusion.config import FallbackConfig, FallbackEntry, JudgeConfig, PanelMember
 from openfusion.errors import UpstreamError
-from openfusion.health import HEALTH
+from openfusion.health import HEALTH, KEY_REGISTRY
 from openfusion.metrics import METRICS
 
 DEFAULT_TIMEOUT = httpx.Timeout(connect=10.0, read=300.0, write=30.0, pool=10.0)
@@ -113,6 +113,11 @@ class UpstreamClient:
         phase: str | None = None,
     ) -> dict[str, Any] | AsyncIterator[dict[str, Any]]:
         provider_id = _provider_id_from_url(member.base_url)
+
+        # If a key pool is registered for this provider, round-robin the key.
+        pooled_key = KEY_REGISTRY.next_key(provider_id)
+        if pooled_key:
+            member = member.model_copy(update={"api_key": pooled_key})
 
         if member.provider == "anthropic":
             return await self._anthropic_chat_completion(

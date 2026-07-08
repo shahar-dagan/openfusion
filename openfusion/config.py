@@ -306,16 +306,27 @@ class ProviderConfig(BaseModel):
     """User-defined provider entry that extends or overrides the built-in registry.
 
     ``id`` must match a known provider (to override its API key) or be a new id
-    (to add a custom/self-hosted provider). ``api_key`` takes precedence over the
-    provider's ``env_key`` environment variable.
+    (to add a custom/self-hosted provider). ``api_key`` / ``api_keys`` take
+    precedence over the provider's ``env_key`` environment variable.
+
+    When ``api_keys`` has more than one entry the client round-robins across them
+    automatically, distributing load and staying within per-key rate limits.
     """
 
     id: str
-    base_url: str | None = None       # required for new providers; optional for overrides
-    api_key: str | None = None        # explicit key; falls back to env_key if absent
+    base_url: str | None = None
+    api_key: str | None = None        # single key shorthand; becomes api_keys[0]
+    api_keys: list[str] = Field(default_factory=list)  # multiple keys → round-robin
     format: Literal["openai", "anthropic"] = "openai"
 
     _normalize_base_url = field_validator("base_url")(_strip_trailing_slash)
+
+    @model_validator(mode="after")
+    def consolidate_keys(self) -> ProviderConfig:
+        """Merge api_key into api_keys so callers only need to check api_keys."""
+        if self.api_key and self.api_key not in self.api_keys:
+            self.api_keys = [self.api_key, *self.api_keys]
+        return self
 
 
 class FallbackEntry(BaseModel):

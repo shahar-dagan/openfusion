@@ -145,3 +145,56 @@ class HealthMonitor:
 
 # Module-level singleton — imported by upstream.py and server.py.
 HEALTH = HealthMonitor()
+
+
+class KeyPool:
+    """Thread-safe round-robin pool of API keys for one provider.
+
+    Calling ``next_key()`` returns keys in order, cycling back to the start.
+    This distributes requests evenly across keys, staying within per-key rate
+    limits when multiple keys are configured.
+    """
+
+    def __init__(self, keys: list[str]) -> None:
+        if not keys:
+            raise ValueError("KeyPool requires at least one key")
+        self._keys = list(keys)
+        self._index = 0
+        self._lock = threading.Lock()
+
+    def next_key(self) -> str:
+        with self._lock:
+            key = self._keys[self._index % len(self._keys)]
+            self._index += 1
+        return key
+
+    def __len__(self) -> int:
+        return len(self._keys)
+
+
+class ProviderKeyRegistry:
+    """Manages per-provider KeyPools for round-robin key selection."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._pools: dict[str, KeyPool] = {}
+
+    def register(self, provider_id: str, keys: list[str]) -> None:
+        """Register (or replace) the key pool for a provider."""
+        pool = KeyPool(keys)
+        with self._lock:
+            self._pools[provider_id] = pool
+
+    def next_key(self, provider_id: str) -> str | None:
+        """Return the next key for a provider, or None if not registered."""
+        with self._lock:
+            pool = self._pools.get(provider_id)
+        return pool.next_key() if pool else None
+
+    def has_pool(self, provider_id: str) -> bool:
+        with self._lock:
+            return provider_id in self._pools
+
+
+# Module-level key registry — populated by server.py at startup from ProviderConfig.
+KEY_REGISTRY = ProviderKeyRegistry()
