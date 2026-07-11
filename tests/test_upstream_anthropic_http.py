@@ -117,6 +117,41 @@ async def test_anthropic_streaming_yields_converted_chunks(mock_router) -> None:
 
 
 @pytest.mark.asyncio
+async def test_anthropic_streaming_skips_malformed_and_unmapped_events(mock_router) -> None:
+    """A malformed SSE data line and an event with no OpenAI mapping (here
+    ``content_block_stop``) are both skipped rather than raised or yielded."""
+    sse_body = (
+        "event: content_block_stop\n"
+        'data: {"type": "content_block_stop"}\n\n'
+        "event: bad\n"
+        "data: {not valid json\n\n"
+        'event: content_block_delta\n'
+        'data: {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "hi"}}\n\n'
+        "data: [DONE]\n\n"
+    )
+    mock_router.post("https://api.anthropic.com/v1/messages").mock(
+        return_value=httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            content=sse_body,
+        )
+    )
+    client = UpstreamClient()
+    member = _member()
+
+    stream = await client.chat_completion(
+        member,
+        {"messages": [{"role": "user", "content": "hi"}]},
+        stream=True,
+    )
+    chunks = [chunk async for chunk in stream]
+
+    assert len(chunks) == 1
+    assert chunks[0]["choices"][0]["delta"]["content"] == "hi"
+    await client.aclose()
+
+
+@pytest.mark.asyncio
 async def test_anthropic_streaming_error_raises_upstream_error(mock_router) -> None:
     mock_router.post("https://api.anthropic.com/v1/messages").mock(
         return_value=httpx.Response(500, content=b"internal error")

@@ -5,6 +5,7 @@ from __future__ import annotations
 from openfusion.upstream import (
     _anthropic_stream_event_to_openai,
     _anthropic_to_openai,
+    _openai_message_to_anthropic,
     _openai_to_anthropic,
 )
 
@@ -159,6 +160,16 @@ def test_unknown_event_returns_none() -> None:
     assert _anthropic_stream_event_to_openai({"type": "content_block_start"}) is None
 
 
+def test_content_block_delta_unknown_delta_type_returns_none() -> None:
+    """Anthropic can emit delta kinds this proxy doesn't translate (e.g. a
+    citations delta); those are skipped rather than surfaced as a bogus chunk."""
+    event = {
+        "type": "content_block_delta",
+        "delta": {"type": "citations_delta", "citation": {}},
+    }
+    assert _anthropic_stream_event_to_openai(event) is None
+
+
 # ---------------------------------------------------------------------------
 # Round-trip: config provider inference
 # ---------------------------------------------------------------------------
@@ -246,6 +257,60 @@ def test_tool_choice_specific_function_mapped() -> None:
     }
     result = _openai_to_anthropic(body, "m", stream=False)
     assert result["tool_choice"] == {"type": "tool", "name": "my_fn"}
+
+
+def test_system_message_returns_none_directly() -> None:
+    """``_openai_to_anthropic`` filters system messages before calling this, but
+    the function is defensive on its own: a system-role message maps to no
+    Anthropic message rather than being mistranslated as a user/assistant turn.
+    """
+    assert _openai_message_to_anthropic({"role": "system", "content": "be nice"}) is None
+
+
+def test_assistant_message_with_text_and_tool_calls() -> None:
+    """A model can emit text before deciding to call a tool; both must survive
+    translation as separate content blocks, text first."""
+    body = {
+        "messages": [
+            {"role": "user", "content": "What's 2+2?"},
+            {
+                "role": "assistant",
+                "content": "Let me calculate that.",
+                "tool_calls": [
+                    {
+                        "id": "call_abc",
+                        "type": "function",
+                        "function": {"name": "calc", "arguments": '{"expr": "2+2"}'},
+                    }
+                ],
+            },
+        ]
+    }
+    result = _openai_to_anthropic(body, "m", stream=False)
+    blocks = result["messages"][1]["content"]
+    assert blocks[0] == {"type": "text", "text": "Let me calculate that."}
+    assert blocks[1]["type"] == "tool_use"
+    assert blocks[1]["input"] == {"expr": "2+2"}
+
+
+def test_tool_call_invalid_json_arguments_default_to_empty_dict() -> None:
+    body = {
+        "messages": [
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call_bad",
+                        "type": "function",
+                        "function": {"name": "calc", "arguments": "not-json"},
+                    }
+                ],
+            },
+        ]
+    }
+    result = _openai_to_anthropic(body, "m", stream=False)
+    assert result["messages"][0]["content"][0]["input"] == {}
 
 
 def test_tool_result_message_converted() -> None:
