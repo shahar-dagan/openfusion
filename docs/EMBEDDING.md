@@ -60,6 +60,12 @@ Set `response_cache.enabled` in the config to serve identical requests (same
 prompt + recipe) from an in-process TTL/LRU cache — instant and free until they
 expire. Cached responses are flagged `cached: true`.
 
+The cache is a single process-wide store shared by every request, regardless of
+`config_resolver`. Its key folds in a fingerprint of the resolved panel/judge API
+key(s), so two tenants with different BYO keys never share an entry even when
+their prompt and model names are identical — only requests resolving to the same
+credentials can hit each other's cached answers.
+
 ## Programmatic use (no HTTP)
 
 The pipeline is importable for non-HTTP use: `panel.gather_panel`,

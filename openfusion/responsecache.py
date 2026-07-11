@@ -12,13 +12,25 @@ from openfusion.config import OpenFusionConfig
 
 
 def cache_key(body: dict[str, Any], config: OpenFusionConfig) -> str:
-    """A stable key over the request + the recipe that determines the answer."""
+    """A stable key over the request + the recipe that determines the answer.
+
+    Includes a fingerprint of the resolved API key(s) so that per-tenant
+    configs (e.g. a ``config_resolver`` handing out BYO keys, see
+    docs/EMBEDDING.md) never share cache entries: a shared, process-wide
+    ``ResponseCache`` would otherwise serve one tenant's cached answer to
+    another tenant who happens to send the same prompt against the same
+    panel/judge model names.
+    """
+    credentials = "|".join(
+        [*(member.api_key for member in config.panel), config.judge.api_key if config.judge else ""]
+    )
     payload = {
         "messages": body.get("messages"),
         "strategy": config.strategy.value,
         "aggregator": config.aggregator.value,
         "panel": [member.model for member in config.panel],
         "judge": config.judge.model if config.judge else None,
+        "credentials": hashlib.sha256(credentials.encode("utf-8")).hexdigest(),
         "tools": [config.tools.web_search, config.tools.web_fetch],
         "max_tokens": body.get("max_tokens") or config.cost_controls.judge_max_tokens,
         # Sampling parameters affect the response; omitting them would serve a
