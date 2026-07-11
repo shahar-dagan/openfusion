@@ -73,6 +73,29 @@ def test_cache_key_differs_on_sampling_params() -> None:
     )
 
 
+def test_cache_key_differs_on_credentials() -> None:
+    """Different tenants (different API keys) must never share a cache entry.
+
+    Regression test: a config_resolver-based multi-tenant deployment (see
+    docs/EMBEDDING.md) resolves a distinct OpenFusionConfig per request, each
+    carrying the tenant's own BYO key. Since ResponseCache is a single
+    process-wide instance, the key must fold in the credentials — otherwise
+    two tenants sending an identical prompt against identically-named panel/
+    judge models would be served each other's cached answer.
+    """
+    body = {"messages": [{"role": "user", "content": "hi"}]}
+    tenant_a = OpenFusionConfig(
+        panel=[PanelMember(base_url="u", api_key="tenant-a-key", model="m")],
+        judge=JudgeConfig(base_url="u", api_key="tenant-a-key", model="j"),
+    )
+    tenant_b = OpenFusionConfig(
+        panel=[PanelMember(base_url="u", api_key="tenant-b-key", model="m")],
+        judge=JudgeConfig(base_url="u", api_key="tenant-b-key", model="j"),
+    )
+    assert cache_key(body, tenant_a) != cache_key(body, tenant_b)
+    assert cache_key(body, tenant_a) == cache_key(body, tenant_a)
+
+
 def test_cache_key_differs_on_output_params() -> None:
     cfg = OpenFusionConfig(
         panel=[PanelMember(base_url="u", api_key="k", model="m")],

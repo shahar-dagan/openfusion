@@ -37,6 +37,10 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and routes the rest. See `examples/route.yaml.example` and `ROADMAP.md`.
 
 ### Fixed
+- `response_cache`'s cache key now folds in a fingerprint of the resolved panel/
+  judge API key(s), so a `config_resolver`-based multi-tenant deployment (see
+  `docs/EMBEDDING.md`) never serves one tenant's cached answer to another tenant
+  sending an identical prompt against identically-named models.
 - Router SOLO requests now forward the configured single model upstream instead
   of the literal string `"openfusion"`.
 - A `pipeline`-strategy streaming request no longer crashes the SSE response on
