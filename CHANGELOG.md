@@ -56,6 +56,11 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   failure and emits an SSE error chunk + `[DONE]`, matching how
   `vote_and_stream`/`ranked_and_stream`/`synthesize_and_stream` already
   degrade a panel or judge failure after the response has started.
+- Per-key rate limiting (`limits.rate_limit_per_minute`) is no longer
+  bypassable by rotating the `Authorization: Bearer` header on a deployment
+  without a `gateway.api_keys` allowlist. The rate-limit identity is now only
+  taken from a *validated* gateway token; unauthenticated traffic shares one
+  `anonymous` bucket instead of each request minting its own budget.
 
 ### Changed
 - The Docker image now runs `openfusion` as an unprivileged `openfusion` user
@@ -63,6 +68,11 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The playground's TypeScript client (`web/src/lib/api.ts`, `App.tsx`) now
   types request/response payloads (`ChatPayload`, `UsagePayload`) instead of
   `any`, catching shape mismatches at compile time.
+- The playground's `App.tsx` test coverage went from 58% to 93% of statements
+  (settings dialog, progress panel, panel grid, copy button, model-suggestion
+  chips, and analysis/usage cards are now exercised); CI now runs `vitest`
+  with coverage and fails under 90%/70%/85%/90% (statements/branches/
+  functions/lines), matching the backend's existing coverage gate.
 
 ## [0.1.0] — 2026-06-17
 
