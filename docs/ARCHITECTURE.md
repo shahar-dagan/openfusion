@@ -21,6 +21,7 @@ openfusion is a thin FastAPI proxy. Each module owns one concern so strategies, 
 | `cache.py` | Prompt-cache breakpoint marking for the shared prefix | HTTP or upstream calls |
 | `upstream.py` | Shared httpx client for OpenAI-compatible APIs | Business logic about panels or judges |
 | `panel.py` | Parallel fan-out, timeouts, degrade, 429 retry, debate rounds | SSE framing |
+| `pipeline.py` | Sequential `strategy: pipeline` steps (`solo`/`fuse`), injecting each step's output into the next via `{step_name}` | SSE framing |
 | `synthesize.py` / `vote.py` / `ranked.py` | Aggregators: judge synthesis, majority vote, judge pick | SSE framing |
 | `synthesize.py` | Judge prompt assembly, yield text deltas only | SSE framing |
 | `stream.py` | All OpenAI chunk/SSE framing, progress events, terminal usage | Judge prompt content decisions |
@@ -34,10 +35,12 @@ Client → server.py
            ├─ client function tools / tool-call turn → upstream.py (pass-through, no fusion)
            ├─ router.route() == SOLO → upstream.py (pass-through, single model)
            └─ model == openfusion (incl. server-executable web tools)
-                 → panel.gather_panel()   (debate strategy: + revision rounds)
-                 → stream.synthesize_and_stream()
-                       → synthesize.synthesize() (deltas)
-                       → stream wraps deltas into SSE
+                 ├─ strategy == pipeline → pipeline.run_pipeline()
+                 │                          (chains solo/fuse steps, streams the last step)
+                 └─ else → panel.gather_panel()   (debate strategy: + revision rounds)
+                             → stream.synthesize_and_stream()
+                                   → synthesize.synthesize() (deltas)
+                                   → stream wraps deltas into SSE
 ```
 
 Tool handling: `server._requires_pass_through_tools` distinguishes tools the upstream executes
@@ -46,7 +49,7 @@ mid-conversation tool turns (which pass through, since their results return thro
 
 ## Extension points
 
-1. **Synthesis strategies** — `strategy` selects how the panel is produced (`self_fusion`, `panel`, `debate`); `aggregator` selects how answers combine (`judge`, `vote`). Add a new strategy by extending `panel.expand_panel_members` / `gather_panel`, or a new aggregator alongside `synthesize`/`vote`.
+1. **Synthesis strategies** — `strategy` selects how the panel is produced (`self_fusion`, `panel`, `debate`, `pipeline`); `aggregator` selects how answers combine (`judge`, `vote`). Add a new strategy by extending `panel.expand_panel_members` / `gather_panel`, or a new aggregator alongside `synthesize`/`vote`. `pipeline` is a parallel code path (`pipeline.run_pipeline`) rather than a panel/aggregator variant — it chains `solo`/`fuse` steps sequentially instead of fusing one panel.
 2. **Router gate** — `router.route()` runs before `gather_panel` in `server.py`. Today it is a heuristic; swap in an LLM classifier behind the same `RouteDecision` return type.
 3. **Eval harness** — `bench/` calls the same HTTP surface as production clients; no special internal APIs.
 4. **Embedding** — `create_app(config_resolver=...)` resolves config per request for multi-tenant/hosted wrappers; see [docs/EMBEDDING.md](EMBEDDING.md).

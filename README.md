@@ -148,8 +148,9 @@ Three knobs control *whether* and *how* a prompt is fused. All are optional and 
   `GET /v1/routing/outcomes` for observability.
 
 - **Strategy** (`strategy:`) — how the panel is produced: `self_fusion` (one model sampled N times),
-  `panel` (a fixed diverse panel), or `debate` (a diverse panel where each member revises after
-  seeing the others' answers, then the judge synthesizes). Debate trades extra cost/latency for
+  `panel` (a fixed diverse panel), `debate` (a diverse panel where each member revises after
+  seeing the others' answers, then the judge synthesizes), or `pipeline` (a sequential chain of
+  steps, each feeding its output to the next). Debate trades extra cost/latency for
   cross-examination:
 
   ```yaml
@@ -157,6 +158,26 @@ Three knobs control *whether* and *how* a prompt is fused. All are optional and 
   debate:
     rounds: 1           # revision rounds before the judge
   ```
+
+  Pipeline chains steps — e.g. research → critique → synthesize — without a separate orchestration
+  layer. Each step is `use: solo` (single model, fastest/cheapest) or `use: fuse` (full panel +
+  judge synthesis, highest quality); a step's `system` prompt can reference a prior step's output
+  with a `{step_name}` placeholder. The last step's output streams to the caller:
+
+  ```yaml
+  strategy: pipeline
+  pipeline:
+    steps:
+      - name: research
+        use: solo
+        system: "Summarize what you know about the topic."
+      - name: final
+        use: fuse
+        system: "Answer using this research:\n{research}"
+  ```
+
+  See [`examples/pipeline.yaml.example`](examples/pipeline.yaml.example) for a full research →
+  critique → synthesize chain.
 
 - **Aggregator** (`aggregator:`) — how answers become one: `judge` (synthesis, default), `vote`
   (majority vote, cheaper, best for verifiable short-answer tasks), or `ranked` (one short judge
