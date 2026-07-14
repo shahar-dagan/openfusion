@@ -318,7 +318,7 @@ export default function App() {
         finalUsage = u;
         setUsage(u);
       },
-      onError: (msg) => setStatus("Error: " + msg),
+      onError: (msg) => { setStatus("Error: " + msg); setBusy(false); setPrompt(submittedPrompt); },
     });
 
     const finalAnswer = answerRef.current;
@@ -611,6 +611,10 @@ export default function App() {
                     </Card>
                   )}
                 </div>
+              )}
+
+              {!busy && status.startsWith("Error") && (
+                <p className="mb-4 text-sm text-destructive">{status}</p>
               )}
 
               <div ref={bottomRef} />

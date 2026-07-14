@@ -38,6 +38,7 @@ function baseConfig(overrides: Partial<ActiveConfig> = {}): ActiveConfig {
 }
 
 beforeEach(() => {
+  localStorage.clear();
   getConfig.mockReset();
   getEstimate.mockReset();
   setApiKey.mockReset();
