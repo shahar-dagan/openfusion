@@ -779,7 +779,6 @@ function TurnView({ turn, onBranch }: { turn: ConversationTurn; onBranch: () => 
                   {showPanel ? "Hide" : "Show"} {turn.panelAnswers.length} panel answers
                 </button>
               )}
-              {turn.usage && <UsageBar usage={turn.usage} />}
               <div className="flex-1" />
               <span className="text-xs text-muted-foreground">
                 {new Date(turn.timestamp).toLocaleTimeString()}
@@ -794,6 +793,13 @@ function TurnView({ turn, onBranch }: { turn: ConversationTurn; onBranch: () => 
         </Card>
       )}
 
+      {/* Panel grid shown directly when there is no fused answer (e.g. panel-only run) */}
+      {!turn.answer && turn.panelAnswers.length > 0 && (
+        <PanelGrid answers={turn.panelAnswers} />
+      )}
+
+      {/* Usage and analysis always shown when present */}
+      {turn.usage && <UsageBar usage={turn.usage} />}
       {turn.analysis && <AnalysisCard analysis={turn.analysis} />}
     </div>
   );
@@ -1113,7 +1119,7 @@ function ModelChip({
 }
 
 function AnalysisCard({ analysis }: { analysis: Record<string, unknown> }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   const entries: [string, unknown][] =
     "raw" in analysis ? [["analysis", analysis.raw]] : Object.entries(analysis);
   return (

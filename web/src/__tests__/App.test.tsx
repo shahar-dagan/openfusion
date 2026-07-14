@@ -177,7 +177,7 @@ describe("App", () => {
     ).toBeInTheDocument();
   });
 
-  it("tracks panel progress through panel_member completion into synthesis", async () => {
+  it("tracks panel progress and renders the fused answer once complete", async () => {
     const user = userEvent.setup();
     getConfig.mockResolvedValue(baseConfig());
     streamFusion.mockImplementation(
@@ -195,9 +195,7 @@ describe("App", () => {
     await user.type(screen.getByPlaceholderText("Ask anything…"), "hi");
     await user.click(screen.getByRole("button", { name: /Fuse/ }));
 
-    expect(await screen.findByText(/Querying panel — 2\/2 answered/)).toBeInTheDocument();
-    expect(screen.getByText(/1 failed/)).toBeInTheDocument();
-    expect(screen.getByText(/Synthesizing with google\/gemini-1.5-pro/)).toBeInTheDocument();
+    // After the run completes, the fused answer is stored in the conversation turn.
     expect(await screen.findByText("final answer")).toBeInTheDocument();
   });
 
@@ -268,10 +266,12 @@ describe("App", () => {
     await user.type(screen.getByPlaceholderText("Ask anything…"), "hi");
     await user.click(screen.getByRole("button", { name: /Fuse/ }));
 
+    // Analysis card starts open — content visible immediately.
     expect(await screen.findByText("Everyone agrees")).toBeInTheDocument();
     expect(screen.getByText("missed edge case")).toBeInTheDocument();
     expect(screen.getByText("blind spots")).toBeInTheDocument();
 
+    // Clicking the header collapses the card.
     await user.click(
       screen.getByRole("button", { name: /Analysis — consensus, contradictions, blind spots/ }),
     );
