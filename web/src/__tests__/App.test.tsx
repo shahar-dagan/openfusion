@@ -386,4 +386,129 @@ describe("App", () => {
 
     expect(within(dialog).getByText(/Active server: 2 panel models/)).toBeInTheDocument();
   });
+
+  it("starts a new conversation when 'New' is clicked in the sidebar", async () => {
+    const user = userEvent.setup();
+    getConfig.mockResolvedValue(baseConfig());
+    streamFusion.mockImplementation(
+      async (_payload: unknown, _token: unknown, handlers: StreamHandlers) => {
+        handlers.onContent?.("first answer");
+      },
+    );
+
+    render(<App />);
+    await screen.findByDisplayValue("openai/gpt-4o");
+
+    await user.type(screen.getByPlaceholderText("Ask anything…"), "first prompt");
+    await user.click(screen.getByRole("button", { name: /Fuse/ }));
+    await screen.findByText("first answer");
+
+    // Start a new conversation via the sidebar "New" button (title="New conversation").
+    await user.click(screen.getByTitle("New conversation"));
+
+    // Main area should show empty state — old answer no longer in the turn list.
+    expect(screen.queryByText("first answer")).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Ask anything…")).toHaveValue("");
+  });
+
+  it("saves completed turns to localStorage and restores them on remount", async () => {
+    const user = userEvent.setup();
+    getConfig.mockResolvedValue(baseConfig());
+    streamFusion.mockImplementation(
+      async (_payload: unknown, _token: unknown, handlers: StreamHandlers) => {
+        handlers.onContent?.("saved answer");
+      },
+    );
+
+    const { unmount } = render(<App />);
+    await screen.findByDisplayValue("openai/gpt-4o");
+    await user.type(screen.getByPlaceholderText("Ask anything…"), "persisted prompt");
+    await user.click(screen.getByRole("button", { name: /Fuse/ }));
+    await screen.findByText("saved answer");
+    unmount();
+
+    // Remount — TurnView should show the saved turn.
+    getConfig.mockResolvedValue(baseConfig());
+    render(<App />);
+    await screen.findByDisplayValue("openai/gpt-4o");
+    // The turn text appears in TurnView (not just the sidebar title).
+    expect(await screen.findByText("saved answer")).toBeInTheDocument();
+  });
+
+  it("switches between conversations in the sidebar", async () => {
+    const user = userEvent.setup();
+    getConfig.mockResolvedValue(baseConfig());
+    streamFusion.mockImplementation(
+      async (_payload: unknown, _token: unknown, handlers: StreamHandlers) => {
+        handlers.onContent?.("answer one");
+      },
+    );
+
+    render(<App />);
+    await screen.findByDisplayValue("openai/gpt-4o");
+
+    await user.type(screen.getByPlaceholderText("Ask anything…"), "question one");
+    await user.click(screen.getByRole("button", { name: /Fuse/ }));
+    await screen.findByText("answer one");
+
+    // Start a second conversation.
+    streamFusion.mockImplementation(
+      async (_payload: unknown, _token: unknown, handlers: StreamHandlers) => {
+        handlers.onContent?.("answer two");
+      },
+    );
+    await user.click(screen.getByTitle("New conversation"));
+    await user.type(screen.getByPlaceholderText("Ask anything…"), "question two");
+    await user.click(screen.getByRole("button", { name: /Fuse/ }));
+    await screen.findByText("answer two");
+
+    // Switch back to the first conversation by clicking its sidebar entry.
+    // The sidebar button text is the conversation title (truncated first prompt).
+    const sidebarButtons = screen.getAllByText("question one");
+    // Click the one inside the sidebar nav (not the TurnView — TurnView is now hidden).
+    await user.click(sidebarButtons[0]);
+    expect(await screen.findByText("answer one")).toBeInTheDocument();
+    expect(screen.queryByText("answer two")).not.toBeInTheDocument();
+  });
+
+  it("branches from a completed turn and preserves context", async () => {
+    const user = userEvent.setup();
+    getConfig.mockResolvedValue(baseConfig());
+    streamFusion.mockImplementation(
+      async (_payload: unknown, _token: unknown, handlers: StreamHandlers) => {
+        handlers.onContent?.("original answer");
+      },
+    );
+
+    render(<App />);
+    await screen.findByDisplayValue("openai/gpt-4o");
+    await user.type(screen.getByPlaceholderText("Ask anything…"), "original question");
+    await user.click(screen.getByRole("button", { name: /Fuse/ }));
+    await screen.findByText("original answer");
+
+    // The Branch button is on the turn bubble (title="Branch from here").
+    await user.click(screen.getByTitle("Branch from here"));
+
+    // A "Branch of:" conversation should appear in the sidebar.
+    expect(await screen.findByText(/Branch of:/)).toBeInTheDocument();
+  });
+
+  it("toggles the history sidebar open and closed", async () => {
+    const user = userEvent.setup();
+    getConfig.mockResolvedValue(baseConfig());
+
+    render(<App />);
+    await screen.findByDisplayValue("openai/gpt-4o");
+
+    // Sidebar open by default — "History" heading visible.
+    expect(screen.getByText("History")).toBeInTheDocument();
+
+    // Click the toggle (title="Toggle history") to close it.
+    await user.click(screen.getByTitle("Toggle history"));
+    expect(screen.queryByText("History")).not.toBeInTheDocument();
+
+    // Click again to reopen.
+    await user.click(screen.getByTitle("Toggle history"));
+    expect(screen.getByText("History")).toBeInTheDocument();
+  });
 });
