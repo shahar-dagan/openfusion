@@ -2,13 +2,50 @@
 
 from __future__ import annotations
 
+import httpx
 import pytest
+import respx
 
-from openfusion.config import PipelineStepConfig, PipelineStepUse
+from openfusion.config import (
+    JudgeConfig,
+    OpenFusionConfig,
+    PanelMember,
+    PassThroughConfig,
+    PipelineConfig,
+    PipelineStepConfig,
+    PipelineStepUse,
+    Strategy,
+)
+from openfusion.errors import InvalidRequestError, UpstreamError
 from openfusion.pipeline import (
     _build_step_messages,
+    _collect_stream,
     _inject_step_outputs,
+    run_pipeline,
 )
+from openfusion.upstream import UpstreamClient
+
+_SSE_HELLO = (
+    'data: {"choices":[{"delta":{"role":"assistant","content":"hel"}'
+    ',"finish_reason":null}]}\n\n'
+    'data: {"choices":[{"delta":{"content":"lo"},"finish_reason":null}]}\n\n'
+    'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n'
+    "data: [DONE]\n\n"
+)
+
+
+def _sse_response(text: str = _SSE_HELLO) -> httpx.Response:
+    return httpx.Response(200, text=text, headers={"content-type": "text/event-stream"})
+
+
+def _base_config(steps: list[PipelineStepConfig]) -> OpenFusionConfig:
+    return OpenFusionConfig(
+        strategy=Strategy.PIPELINE,
+        pipeline=PipelineConfig(steps=steps),
+        panel=[PanelMember(base_url="https://mock/v1", api_key="k", model="m")],
+        judge=JudgeConfig(base_url="https://mock/v1", api_key="k", model="j"),
+        pass_through=PassThroughConfig(base_url="https://mock/v1", api_key="k", model="m"),
+    )
 
 # ---------------------------------------------------------------------------
 # _inject_step_outputs
@@ -186,3 +223,226 @@ async def test_run_pipeline_single_solo_step() -> None:
         await client.aclose()
 
     assert "".join(parts) == "hello"
+
+
+# ---------------------------------------------------------------------------
+# _collect_stream
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_collect_stream_accumulates_text_and_last_usage() -> None:
+    async def chunks():
+        yield {"choices": [{"delta": {"content": "foo"}}]}
+        yield {"choices": [{"delta": {"content": "bar"}}]}
+        yield {
+            "choices": [{"delta": {}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3},
+        }
+
+    text, usage = await _collect_stream(chunks())
+    assert text == "foobar"
+    assert usage == {"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3}
+
+
+@pytest.mark.asyncio
+async def test_collect_stream_no_usage_returns_none() -> None:
+    async def chunks():
+        yield {"choices": [{"delta": {"content": "x"}}]}
+
+    text, usage = await _collect_stream(chunks())
+    assert text == "x"
+    assert usage is None
+
+
+# ---------------------------------------------------------------------------
+# run_pipeline: FUSE steps
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_run_pipeline_fuse_step_missing_judge_raises() -> None:
+    cfg = _base_config([PipelineStepConfig(name="answer", use=PipelineStepUse.FUSE)])
+    cfg = cfg.model_copy(update={"judge": None})
+    client = UpstreamClient()
+
+    gen = run_pipeline({"messages": [{"role": "user", "content": "hi"}]}, cfg, client)
+    with pytest.raises(InvalidRequestError, match="fuse but no judge"):
+        async for _ in gen:
+            pass
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_run_pipeline_single_fuse_step_streams_synthesis() -> None:
+    cfg = _base_config([PipelineStepConfig(name="answer", use=PipelineStepUse.FUSE)])
+
+    with respx.mock(assert_all_called=True) as mock:
+        route = mock.post("https://mock/v1/chat/completions")
+        route.side_effect = [
+            # panel member call (non-streaming)
+            httpx.Response(200, json={"choices": [{"message": {"content": "panel says x"}}]}),
+            # judge synthesis call (streaming)
+            _sse_response(),
+        ]
+        client = UpstreamClient()
+        parts: list[str] = []
+        async for delta, _usage, _reason in run_pipeline(
+            {"messages": [{"role": "user", "content": "hi"}]}, cfg, client
+        ):
+            if delta:
+                parts.append(delta)
+        await client.aclose()
+
+    assert "".join(parts) == "hello"
+
+
+@pytest.mark.asyncio
+async def test_run_pipeline_intermediate_fuse_feeds_final_solo() -> None:
+    """An intermediate FUSE step's synthesized text must be injected into the
+    next step's {step_name} placeholder, and only the final step's output is
+    streamed to the caller."""
+    cfg = _base_config(
+        [
+            PipelineStepConfig(name="research", use=PipelineStepUse.FUSE),
+            PipelineStepConfig(
+                name="final",
+                use=PipelineStepUse.SOLO,
+                system="Use {research} to answer.",
+            ),
+        ]
+    )
+
+    with respx.mock(assert_all_called=True) as mock:
+        route = mock.post("https://mock/v1/chat/completions")
+        route.side_effect = [
+            httpx.Response(200, json={"choices": [{"message": {"content": "panel says x"}}]}),
+            _sse_response('data: {"choices":[{"delta":{"content":"research done"}'
+                          ',"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n'),
+            _sse_response('data: {"choices":[{"delta":{"content":"final answer"}'
+                          ',"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n'),
+        ]
+        client = UpstreamClient()
+        parts: list[str] = []
+        async for delta, _usage, _reason in run_pipeline(
+            {"messages": [{"role": "user", "content": "hi"}]}, cfg, client
+        ):
+            if delta:
+                parts.append(delta)
+        await client.aclose()
+
+        # The final step's system prompt must have had the research output injected.
+        final_call = route.calls[-1]
+        sent_body = final_call.request.content.decode()
+        assert "research done" in sent_body
+
+    assert "".join(parts) == "final answer"
+
+
+# ---------------------------------------------------------------------------
+# run_pipeline: SOLO steps
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_run_pipeline_solo_step_model_override() -> None:
+    cfg = _base_config(
+        [PipelineStepConfig(name="answer", use=PipelineStepUse.SOLO, model="custom/model")]
+    )
+
+    with respx.mock(assert_all_called=True) as mock:
+        route = mock.post("https://mock/v1/chat/completions").mock(
+            return_value=_sse_response()
+        )
+        client = UpstreamClient()
+        parts: list[str] = []
+        async for delta, _usage, _reason in run_pipeline(
+            {"messages": [{"role": "user", "content": "hi"}]}, cfg, client
+        ):
+            if delta:
+                parts.append(delta)
+        await client.aclose()
+
+        sent_body = route.calls[-1].request.content.decode()
+        assert '"model":"custom/model"' in sent_body or "custom/model" in sent_body
+
+    assert "".join(parts) == "hello"
+
+
+@pytest.mark.asyncio
+async def test_run_pipeline_multi_step_solo_chain() -> None:
+    """Two SOLO steps chained: the first's collected output must be injected
+    into the second's system prompt via the {step_name} placeholder."""
+    cfg = _base_config(
+        [
+            PipelineStepConfig(name="draft", use=PipelineStepUse.SOLO),
+            PipelineStepConfig(
+                name="final", use=PipelineStepUse.SOLO, system="Polish: {draft}"
+            ),
+        ]
+    )
+
+    with respx.mock(assert_all_called=True) as mock:
+        route = mock.post("https://mock/v1/chat/completions")
+        route.side_effect = [
+            _sse_response('data: {"choices":[{"delta":{"content":"draft text"}'
+                          ',"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n'),
+            _sse_response('data: {"choices":[{"delta":{"content":"polished"}'
+                          ',"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n'),
+        ]
+        client = UpstreamClient()
+        parts: list[str] = []
+        async for delta, _usage, _reason in run_pipeline(
+            {"messages": [{"role": "user", "content": "hi"}]}, cfg, client
+        ):
+            if delta:
+                parts.append(delta)
+        await client.aclose()
+
+        final_call = route.calls[-1]
+        assert "draft text" in final_call.request.content.decode()
+
+    assert "".join(parts) == "polished"
+
+
+@pytest.mark.asyncio
+async def test_run_pipeline_solo_final_step_non_stream_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = _base_config([PipelineStepConfig(name="answer", use=PipelineStepUse.SOLO)])
+    client = UpstreamClient()
+
+    async def fake_chat_completion(*args, **kwargs):
+        return {"choices": [{"message": {"content": "not a stream"}}]}
+
+    monkeypatch.setattr(client, "chat_completion", fake_chat_completion)
+
+    gen = run_pipeline({"messages": [{"role": "user", "content": "hi"}]}, cfg, client)
+    with pytest.raises(UpstreamError, match="Expected streaming response"):
+        async for _ in gen:
+            pass
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_run_pipeline_solo_intermediate_step_non_stream_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = _base_config(
+        [
+            PipelineStepConfig(name="draft", use=PipelineStepUse.SOLO),
+            PipelineStepConfig(name="final", use=PipelineStepUse.SOLO),
+        ]
+    )
+    client = UpstreamClient()
+
+    async def fake_chat_completion(*args, **kwargs):
+        return {"choices": [{"message": {"content": "not a stream"}}]}
+
+    monkeypatch.setattr(client, "chat_completion", fake_chat_completion)
+
+    gen = run_pipeline({"messages": [{"role": "user", "content": "hi"}]}, cfg, client)
+    with pytest.raises(UpstreamError, match="Expected streaming response"):
+        async for _ in gen:
+            pass
+    await client.aclose()
