@@ -159,7 +159,31 @@ async def _run_ask(prompt: str, config: OpenFusionConfig) -> None:
         await client.aclose()
 
 
-def run_ask(prompt: str, config_path: str | None, max_tokens: int | None) -> None:
+async def _print_estimate(prompt: str, config: OpenFusionConfig) -> None:
+    """Print the calls/tokens/$ a prompt would cost, without running it."""
+    from openfusion.estimate import build_estimate
+    from openfusion.pricing import get_prices
+
+    body = {"messages": [{"role": "user", "content": prompt}]}
+    base = config.panel[0].base_url if config.panel else OPENROUTER_BASE_URL
+    prices = await get_prices(base)
+    result = build_estimate(body, config, prices)
+    cost = (
+        f"${result['cost_usd']:.5f}"
+        if result["cost_usd"] is not None
+        else "unknown (pricing unavailable)"
+    )
+    print("openfusion: estimate for this prompt")
+    print(f"  models:            {', '.join(result['models']) or '—'}")
+    print(f"  calls:             {result['calls']}")
+    print(f"  input tokens:      {result['input_tokens']}")
+    print(f"  max output tokens: {result['max_output_tokens']}")
+    print(f"  cost (est.):       {cost}")
+
+
+def run_ask(
+    prompt: str, config_path: str | None, max_tokens: int | None, estimate: bool = False
+) -> None:
     try:
         config = load_config(config_path)
     except (FileNotFoundError, ValueError, ValidationError) as exc:
@@ -168,6 +192,9 @@ def run_ask(prompt: str, config_path: str | None, max_tokens: int | None) -> Non
     if max_tokens:
         config = apply_overrides(config, {"max_tokens": max_tokens})
     config = fill_missing_keys(config, load_saved_key())
+    if estimate:
+        asyncio.run(_print_estimate(prompt, config))
+        return
     if is_missing_api_key(config):
         print(
             "openfusion: no upstream API key. Set OPENROUTER_API_KEY or run `openfusion setup`.",
@@ -184,8 +211,13 @@ def _ask_cli(argv: list[str]) -> None:
     parser.add_argument("prompt", help="The prompt to fuse")
     parser.add_argument("--config", default=os.environ.get("OPENFUSION_CONFIG"))
     parser.add_argument("--max-tokens", type=int, default=None, help="Cap tokens per call")
+    parser.add_argument(
+        "--estimate",
+        action="store_true",
+        help="Print a cost/token estimate instead of running the prompt",
+    )
     args = parser.parse_args(argv)
-    run_ask(args.prompt, args.config, args.max_tokens)
+    run_ask(args.prompt, args.config, args.max_tokens, args.estimate)
 
 
 async def _chat_turn(

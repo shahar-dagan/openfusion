@@ -25,10 +25,11 @@ Directional, not a promise. Issues and PRs welcome on any of these.
 - **Pipeline strategy** (`strategy: pipeline`) — chain sequential `solo`/`fuse` steps, each
   feeding its output to the next via a `{step_name}` placeholder. See
   `examples/pipeline.yaml.example`.
+- **CLI cost preview** — `openfusion ask --estimate` prints the calls/tokens/`$` a prompt
+  would cost without running it.
 
 ## Next
-- **Live `$` pricing in the estimate for non-OpenRouter providers** and a
-  CLI cost preview (`openfusion ask --estimate`).
+- **Live `$` pricing in the estimate for non-OpenRouter providers.**
 
 ## Benchmarks
 - Scale the DRACO eval to the full task set with a stronger grader for a

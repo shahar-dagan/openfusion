@@ -7,6 +7,9 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **CLI cost preview** — `openfusion ask --estimate "..."` prints the calls/tokens/`$` a prompt
+  would cost (same estimate as `POST /v1/estimate`) without running it or requiring an upstream
+  API key.
 - **Routing learning loop** — the heuristic router (`router.mode: heuristic`) now tracks an
   in-process EMA of fuse-vs-solo success rate per prompt tier (`openfusion.outcomes.OutcomeStore`)
   and nudges future decisions toward whichever has been winning once either side has enough
