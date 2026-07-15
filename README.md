@@ -109,6 +109,7 @@ openfusion ask "Compare Postgres and SQLite for a small SaaS." --max-tokens 800
 
 `ask` runs one fusion against your configured panel and streams the synthesized answer to stdout
 (panel progress goes to stderr). `--max-tokens` caps every call — lower is faster and cheaper.
+`--estimate` prints the calls/tokens/`$` preview instead of running the prompt.
 
 > **Speed & length.** Fusion runs N panel calls plus a judge, so it's slower than one model — the
 > panel runs in parallel and the judge streams as soon as the panel finishes. The judge is prompted
@@ -206,7 +207,8 @@ multi-replica deployments, an edge rate limiter.
 
 - **Cost preview** — `POST /v1/estimate` (same body as `/v1/chat/completions`) returns the number of
   upstream calls, an input-token estimate, the output cap, and a best-effort `$` figure from cached
-  OpenRouter pricing. The playground shows this live as you type.
+  OpenRouter pricing. The playground shows this live as you type; `openfusion ask --estimate "..."`
+  prints the same preview from the CLI without running the prompt.
 - **Response cache** (`response_cache.enabled: true`) — identical fused requests (same prompt +
   recipe) are served from an in-process TTL/LRU cache instead of re-running the panel:
 
