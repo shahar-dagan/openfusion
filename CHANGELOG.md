@@ -63,6 +63,12 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `anonymous` bucket instead of each request minting its own budget.
 
 ### Changed
+- CI now runs `tsc --noEmit` (`npm run typecheck`) on the playground before
+  building it, so a type error in `web/src/**` fails the build instead of
+  silently passing through Vite's esbuild transform (which strips types
+  without checking them). Dropped `tsconfig.json`'s deprecated `baseUrl`
+  option, which otherwise made `tsc` itself fail under the installed
+  TypeScript version.
 - The Docker image now runs `openfusion` as an unprivileged `openfusion` user
   instead of root.
 - The playground's TypeScript client (`web/src/lib/api.ts`, `App.tsx`) now

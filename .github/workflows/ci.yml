@@ -55,6 +55,10 @@ jobs:
         working-directory: web
         run: npm ci
 
+      - name: Typecheck
+        working-directory: web
+        run: npm run typecheck
+
       - name: Vitest with coverage
         working-directory: web
         run: npm run test:coverage
