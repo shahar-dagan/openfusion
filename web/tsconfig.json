@@ -8,7 +8,6 @@
     "jsx": "react-jsx",
     "strict": true,
     "noUnusedLocals": false,
-    "baseUrl": ".",
     "paths": { "@/*": ["./src/*"] }
   },
   "include": ["src"]
